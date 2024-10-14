@@ -1,0 +1,12 @@
+rlog - A Rust-based TUI log file viewer
+
+This is a rebuild of jlog in rust... using TUI and hopefully much better
+performance.
+
+Choices:
+  - TUI: https://github.com/ratatui/ratatui
+    - Use the ELM architecture for the app:
+      - Model, Update, View
+
+
+
