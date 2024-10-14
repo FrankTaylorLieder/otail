@@ -8,5 +8,11 @@ Choices:
     - Use the ELM architecture for the app:
       - Model, Update, View
 
+- TUI example
 
+Commit: 7e4ec61
+
+- Core file reading
+  - SFile - start to build out a searchable file.
+  - Survey() - scans the file to create a set of line offsets. Currently this is a synchronous.
 
