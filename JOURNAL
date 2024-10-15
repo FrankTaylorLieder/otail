@@ -16,3 +16,16 @@ Commit: 7e4ec61
   - SFile - start to build out a searchable file.
   - Survey() - scans the file to create a set of line offsets. Currently this is a synchronous.
 
+Commit: 570732b
+
+- Async survey: (example)
+  - Start to build out the command structure, enabling the IFile to receive new data, but the view to query existing data.
+
+Commit: 723bd59
+
+- Tailing files, detecting truncation
+  - See: https://github.com/notify-rs/notify?tab=readme-ov-file
+  - Example: tail.rs
+  - As we are using this with Tokio, disable crossbeam-channel as per docs.
+
+
