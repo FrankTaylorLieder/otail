@@ -10,7 +10,7 @@ struct SLine {
 }
 
 #[derive(Default, Debug)]
-pub struct SFile {
+pub struct IFile {
     path: PathBuf,
     file: Option<File>,
     lines: Vec<SLine>,
@@ -18,24 +18,24 @@ pub struct SFile {
     byte_count: u32,
 }
 
-pub enum SFileError {
+pub enum IFileError {
     General(String),
 }
 
-type Result<T> = std::result::Result<T, SFileError>;
+type Result<T> = std::result::Result<T, IFileError>;
 
-impl SFile {
-    pub fn new(path: &str) -> SFile {
+impl IFile {
+    pub fn new(path: &str) -> IFile {
         let mut pb = PathBuf::new();
         pb.push(path);
-        SFile {
+        IFile {
             path: pb,
             ..Default::default()
         }
     }
 
     pub fn survey(&mut self) -> Result<()> {
-        let file = File::open(&self.path).map_err(|e| SFileError::General(e.to_string()))?;
+        let file = File::open(&self.path).map_err(|e| IFileError::General(e.to_string()))?;
 
         let mut br = BufReader::new(file);
         let mut buf = String::new();
@@ -43,7 +43,7 @@ impl SFile {
         loop {
             let bytes = br
                 .read_line(&mut buf)
-                .map_err(|e| SFileError::General(e.to_string()))?;
+                .map_err(|e| IFileError::General(e.to_string()))?;
 
             if bytes == 0 {
                 break;
