@@ -39,6 +39,7 @@ pub async fn main() -> Result<()> {
 
         println!("Opened file: {}, len: {}", path, pos);
 
+        let mut partial = false;
         while let Some(m) = rx.recv().await {
             println!("Received update: {:#?}", m);
 
@@ -70,7 +71,17 @@ pub async fn main() -> Result<()> {
                         }
 
                         pos += len as u64;
-                        println!("Next line: {}", line);
+
+                        if !line.as_str().ends_with('\n') {
+                            partial = true;
+                        } else {
+                            partial = false;
+                        }
+                        println!(
+                            "Next line: {} {}",
+                            if partial { "PARTIAL" } else { "COMPLETE" },
+                            line
+                        );
 
                         line.clear();
                     }
