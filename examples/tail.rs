@@ -1,6 +1,9 @@
 #![allow(unused)]
+use std::io::{BufRead, BufReader, Seek};
+
 use anyhow::Result;
-use notify::{Config, Event, RecommendedWatcher, Watcher};
+use notify::event::{MetadataKind, ModifyKind};
+use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Receiver};
 
@@ -27,14 +30,57 @@ pub async fn main() -> Result<()> {
     let path = std::env::args().nth(1).expect("Missing filename");
 
     let (mut watcher, mut rx) = async_watcher()?;
-
     watcher.watch(path.as_ref(), notify::RecursiveMode::Recursive);
 
     let rh = tokio::spawn(async move {
+        let mut f = std::fs::File::open(&path).unwrap();
+        let mut br = BufReader::new(std::fs::File::open(&path).unwrap());
+        let mut pos = std::fs::metadata(&path).unwrap().len();
+
+        println!("Opened file: {}, len: {}", path, pos);
+
         while let Some(m) = rx.recv().await {
-            println!("Received update: {:?}", m);
-            // TODO: Interpret the response to show new data vs truncation.
-            // TODO: Debounce events.
+            println!("Received update: {:#?}", m);
+
+            match m {
+                Ok(event) => {
+                    if let EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)) = event.kind {
+                        println!("File truncated... reloading");
+
+                        br = BufReader::new(std::fs::File::open(&path).unwrap());
+                        pos = 0;
+                        continue;
+                    }
+
+                    let fmd = f.metadata().unwrap();
+                    let new_len = fmd.len();
+                    println!("New length: {}", new_len);
+                    if new_len == pos {
+                        continue;
+                    }
+
+                    br.seek(std::io::SeekFrom::Start(pos)).unwrap();
+
+                    let mut line = String::new();
+                    loop {
+                        let len = br.read_line(&mut line).unwrap();
+
+                        if len == 0 {
+                            break;
+                        }
+
+                        pos += len as u64;
+                        println!("Next line: {}", line);
+
+                        line.clear();
+                    }
+                }
+                Err(e) => {
+                    println!("Error: {:?}", e);
+                }
+            };
+
+            // TODO: Debounce events?
         }
     });
 
