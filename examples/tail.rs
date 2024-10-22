@@ -72,6 +72,7 @@ pub async fn main() -> Result<()> {
 
                         pos += len as u64;
 
+                        // TODO: Also check for '\r\n'
                         if !line.as_str().ends_with('\n') {
                             partial = true;
                         } else {

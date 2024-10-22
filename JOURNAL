@@ -28,4 +28,21 @@ Commit: 723bd59
   - Example: tail.rs
   - As we are using this with Tokio, disable crossbeam-channel as per docs.
 
+Commit: d3dab7c
+
+- Detect if the final line is complete or not.
+
+Commit: b3572fc
+
+- Lay out the backend of rtail... drive using a fixed frontend.
+  - IFile
+    - Enable registered tailers.
+  - INITIAL File Reader
+  - Filtered file (FFile)
+    - Like an IFile but uses an IFile as its source instead of a File Reader.
+  - View (with colouring) on top of raw IFile or FFile
+    - Or do we always have an FFile which sometimes as not filter... does not seem worth it.
+    - Create a XFile trait to hide the details of file implementation, or connect with channels?
+      - Use channels as FFile is active (scanning the underlying IFile to find matches).
+  - Running more than one file at a time
 
