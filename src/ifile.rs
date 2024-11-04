@@ -207,10 +207,30 @@ impl IFile {
                 }
             }
             ReaderUpdate::Truncated => {
-                todo!()
+                trace!("File truncated... resetting ifile");
+                self.line_count = 0;
+                self.lines = vec![];
+                self.byte_count = 0;
+
+                for updater in self.view_update_senders.iter() {
+                    trace!("Sending truncate");
+                    // TODO: Deal with unwrap
+                    updater.send(ViewUpdate::Truncated).await.unwrap();
+                }
             }
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
+
+                for updater in self.view_update_senders.iter() {
+                    trace!("Forwarding error");
+                    // TODO: Deal with unwrap
+                    updater
+                        .send(ViewUpdate::FileError {
+                            reason: reason.clone(),
+                        })
+                        .await
+                        .unwrap();
+                }
             }
         }
     }

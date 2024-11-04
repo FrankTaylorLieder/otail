@@ -79,6 +79,19 @@ impl Reader {
                         continue;
                     }
 
+                    if let EventKind::Remove(_) = event.kind {
+                        debug!("File or directory removed... error");
+
+                        sender
+                            .send(ReaderUpdate::FileError {
+                                reason: "File removed".to_owned(),
+                            })
+                            .await;
+
+                        // TODO: Shut it all down
+                        continue;
+                    }
+
                     // TODO: Remove unwrap
                     let fmd = f.metadata().unwrap();
                     let new_len = fmd.len();

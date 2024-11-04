@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{debug, error};
+use log::{debug, error, trace};
 use tokio::select;
 
 use crate::ifile::{ViewCommandsSender, ViewUpdate, ViewUpdateReceiver, ViewUpdateSender};
@@ -67,7 +67,7 @@ impl ConsoleView {
                 debug!("View line: {line_no} = {line} ({file_bytes})");
             }
             ViewUpdate::Truncated => {
-                todo!()
+                debug!("File truncated");
             }
             ViewUpdate::FileError { reason } => {
                 error!("File error: {reason}");
