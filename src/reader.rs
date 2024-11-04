@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Receiver};
 
-use crate::ifile::{CommandsSender, IFileCommand};
+use crate::ifile::{ReaderUpdate, ReaderUpdateSender, ViewCommand, ViewCommandsSender};
 
 pub struct Reader {}
 
 impl Reader {
-    pub async fn run(path: PathBuf, sync: CommandsSender) -> Result<()> {
+    pub async fn run(path: PathBuf, sender: ReaderUpdateSender) -> Result<()> {
         let mut f = std::fs::File::open(&path).unwrap();
         let mut br = BufReader::new(std::fs::File::open(&path).unwrap());
         let mut pos = 0;
@@ -44,14 +44,16 @@ impl Reader {
             partial = !line.as_str().ends_with('\n');
 
             // TODO: Also check for '\r\n'
-            sync.send(IFileCommand::Line {
-                // Deliver the whole line each time we send the line.
-                line: line.clone(),
-                line_bytes,
-                partial,
-                file_bytes: pos as u32,
-            })
-            .await;
+            trace!("Sending update...");
+            sender
+                .send(ReaderUpdate::Line {
+                    // Deliver the whole line each time we send the line.
+                    line: line.clone(),
+                    line_bytes,
+                    partial,
+                    file_bytes: pos as u32,
+                })
+                .await;
         }
 
         // Now tail the file.
@@ -72,7 +74,7 @@ impl Reader {
                         br = BufReader::new(std::fs::File::open(&path).unwrap());
                         pos = 0;
 
-                        sync.send(IFileCommand::Truncated).await;
+                        sender.send(ReaderUpdate::Truncated).await;
 
                         continue;
                     }
@@ -118,14 +120,15 @@ impl Reader {
                             line
                         );
 
-                        sync.send(IFileCommand::Line {
-                            // Deliver the whole line each time we send the line.
-                            line: line.clone(),
-                            line_bytes,
-                            partial,
-                            file_bytes: pos as u32,
-                        })
-                        .await;
+                        sender
+                            .send(ReaderUpdate::Line {
+                                // Deliver the whole line each time we send the line.
+                                line: line.clone(),
+                                line_bytes,
+                                partial,
+                                file_bytes: pos as u32,
+                            })
+                            .await;
                     }
                 }
                 Err(e) => {

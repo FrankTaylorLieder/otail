@@ -4,25 +4,54 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::{thread, usize};
 use tokio::fs::File;
+use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::reader::Reader;
 
-pub type CommandsSender = mpsc::Sender<IFileCommand>;
-pub type CommandsReceiver = mpsc::Receiver<IFileCommand>;
+pub type ViewCommandsSender = mpsc::Sender<ViewCommand>;
+pub type ViewCommandsReceiver = mpsc::Receiver<ViewCommand>;
+
+pub type ViewUpdateSender = mpsc::Sender<ViewUpdate>;
+pub type ViewUpdateReceiver = mpsc::Receiver<ViewUpdate>;
+
 pub type ResultResponder<T> = oneshot::Sender<T>;
 
-// TODO: Split these commands into Reader and Consumer commands.
+pub type ReaderUpdateSender = mpsc::Sender<ReaderUpdate>;
+pub type ReaderUpdateReceiver = mpsc::Receiver<ReaderUpdate>;
+
 #[derive(Debug)]
-pub enum IFileCommand {
+pub enum ViewCommand {
     GetLine {
         index: u32,
         resp: ResultResponder<Option<String>>,
+    },
+    RegisterUpdates {
+        updater: ViewUpdateSender,
     },
     RegisterTail {
         index: u32,
         resp: ResultResponder<String>,
     },
+}
+
+#[derive(Debug)]
+pub enum ViewUpdate {
+    Line {
+        line_no: u32,
+        line: String,
+        line_bytes: u32,
+        partial: bool,
+        file_bytes: u32,
+    },
+    Truncated,
+    FileError {
+        reason: String,
+    },
+}
+
+#[derive(Debug)]
+pub enum ReaderUpdate {
     Line {
         line: String,
         line_bytes: u32,
@@ -44,12 +73,15 @@ struct SLine {
 
 #[derive(Debug)]
 pub struct IFile {
-    commands_receiver: CommandsReceiver,
-    commands_sender: CommandsSender,
+    view_receiver: ViewCommandsReceiver,
+    view_sender: ViewCommandsSender,
+    reader_receiver: ReaderUpdateReceiver,
+    reader_sender: ReaderUpdateSender,
     path: PathBuf,
     lines: Vec<SLine>,
     line_count: u32,
     byte_count: u32,
+    view_update_senders: Vec<ViewUpdateSender>,
     tailers: Vec<ResultResponder<String>>,
 }
 
@@ -58,20 +90,24 @@ impl IFile {
         let mut pb = PathBuf::new();
         pb.push(path);
 
-        let (commands_sender, commands_receiver) = mpsc::channel(10);
+        let (view_sender, view_receiver) = mpsc::channel(10);
+        let (reader_sender, reader_receiver) = mpsc::channel(10);
 
         IFile {
             path: pb,
-            commands_receiver,
-            commands_sender,
+            view_receiver,
+            view_sender,
+            reader_receiver,
+            reader_sender,
             lines: vec![],
             line_count: 0,
             byte_count: 0,
+            view_update_senders: vec![],
             tailers: vec![],
         }
     }
 
-    fn run_reader(&mut self, cs: CommandsSender) {
+    fn run_reader(&mut self, cs: ReaderUpdateSender) {
         let cs = cs.clone();
         let path = self.path.clone();
         tokio::spawn(async move {
@@ -79,74 +115,39 @@ impl IFile {
         });
     }
 
+    pub fn get_view_sender(&self) -> ViewCommandsSender {
+        self.view_sender.clone()
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         debug!("Ifile starting: {:?}", self.path);
 
-        self.run_reader(self.commands_sender.clone());
+        self.run_reader(self.reader_sender.clone());
 
-        trace!("Waiting on commands");
+        trace!("Waiting on commands/updates...");
 
-        // TODO: Have different channels for reader and command input... use select! to handle
-        // them.
-        while let Some(cmd) = self.commands_receiver.recv().await {
-            trace!("IFile received command: {:?}", cmd);
-
-            match cmd {
-                IFileCommand::GetLine { index, resp } => {
-                    trace!("Getting line: {}", index);
-                    let sl = self.lines.get(index as usize);
-                    resp.send(sl.map(|sl| sl.content.clone()));
-                }
-                IFileCommand::RegisterTail { index, resp } => {
-                    trace!("Tail: {}", index);
-                    let sl = self.lines.get(index as usize);
-                    let Some(sl) = sl else {
-                        trace!("Waiting for next line...");
-                        self.tailers.push(resp);
-                        continue;
-                    };
-                    resp.send(sl.content.clone());
-                }
-                IFileCommand::Line {
-                    line,
-                    line_bytes,
-                    partial,
-                    file_bytes,
-                } => {
-                    trace!("Adding line: {} / {:?}", partial, self.line_count);
-
-                    if partial {
-                        self.lines[self.line_count as usize - 1] = SLine {
-                            content: line.clone(),
-                            index: self.line_count,
-                            length: line_bytes,
+        // TODO: Deal with closing command channels to signal shutting down
+        loop {
+            select! {
+                cmd = self.view_receiver.recv() => {
+                    match cmd {
+                        Some(cmd) => {
+                            self.handle_view_command(cmd).await;
+                        },
+                        None => {
+                            todo!()
                         }
-                    } else {
-                        self.lines.push(SLine {
-                            content: line.clone(),
-                            index: self.line_count,
-                            length: line_bytes,
-                        });
-
-                        self.line_count += 1;
-                    }
-                    self.byte_count = file_bytes;
-
-                    while let Some(t) = self.tailers.pop() {
-                        trace!("Sending line to tailer");
-                        t.send(line.clone()).unwrap();
                     }
                 }
-                IFileCommand::Truncated => {
-                    self.lines.clear();
-                    self.line_count = 0;
-                    self.byte_count = 0;
-
-                    // TODO: Inform tailers we've been truncated.
-                }
-                IFileCommand::FileError { reason } => {
-                    error!("File error: {}", reason);
-                    return Err(anyhow::anyhow!("File error: {}", reason));
+                update = self.reader_receiver.recv() => {
+                    match update {
+                        Some(update) => {
+                            self.handle_reader_update(update).await;
+                        },
+                        None => {
+                            todo!()
+                        }
+                    }
                 }
             }
         }
@@ -154,5 +155,88 @@ impl IFile {
         trace!("IFile finished");
 
         Ok(())
+    }
+
+    async fn handle_reader_update(&mut self, update: ReaderUpdate) {
+        trace!("Handle reader update: {:?}", update);
+        match update {
+            ReaderUpdate::Line {
+                line,
+                line_bytes,
+                partial,
+                file_bytes,
+            } => {
+                trace!("Adding line: {} / {:?}", partial, self.line_count);
+
+                if partial {
+                    self.lines[self.line_count as usize - 1] = SLine {
+                        content: line.clone(),
+                        index: self.line_count,
+                        length: line_bytes,
+                    }
+                } else {
+                    self.lines.push(SLine {
+                        content: line.clone(),
+                        index: self.line_count,
+                        length: line_bytes,
+                    });
+
+                    self.line_count += 1;
+                }
+                self.byte_count = file_bytes;
+
+                for updater in self.view_update_senders.iter() {
+                    trace!("Sending update");
+                    // TODO: Deal with unwrap
+                    updater
+                        .send(ViewUpdate::Line {
+                            line_no: self.line_count - 1,
+                            line: line.clone(),
+                            line_bytes,
+                            partial,
+                            file_bytes,
+                        })
+                        .await
+                        .unwrap();
+                }
+
+                while let Some(t) = self.tailers.pop() {
+                    trace!("Sending line to tailer");
+                    // TODO: Remove unwrap
+                    t.send(line.clone()).unwrap();
+                }
+            }
+            ReaderUpdate::Truncated => {
+                todo!()
+            }
+            ReaderUpdate::FileError { reason } => {
+                error!("File error: {:?}", reason);
+            }
+        }
+    }
+
+    async fn handle_view_command(&mut self, cmd: ViewCommand) {
+        trace!("Handle view command: {:?}", cmd);
+        match cmd {
+            ViewCommand::GetLine { index, resp } => {
+                trace!("Getting line: {}", index);
+                let sl = self.lines.get(index as usize);
+                resp.send(sl.map(|sl| sl.content.clone()));
+            }
+            ViewCommand::RegisterUpdates { updater } => {
+                trace!("Registering an updater");
+                self.view_update_senders.push(updater);
+            }
+            ViewCommand::RegisterTail { index, resp } => {
+                trace!("Tail: {}", index);
+                let sl = self.lines.get(index as usize);
+                let Some(sl) = sl else {
+                    trace!("Waiting for next line...");
+                    self.tailers.push(resp);
+                    return;
+                };
+                resp.send(sl.content.clone());
+            }
+        }
     }
 }
