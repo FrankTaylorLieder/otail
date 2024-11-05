@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{debug, trace};
+use log::trace;
 use notify::event::{MetadataKind, ModifyKind};
 use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
 use std::io::{BufRead, BufReader, Seek};
@@ -17,7 +17,7 @@ impl Reader {
         let mut br = BufReader::new(std::fs::File::open(&path).unwrap());
         let mut pos = 0;
 
-        debug!("Opened file: {:?}", path);
+        trace!("Opened file: {:?}", path);
 
         // Start by spooling the file
         trace!("Spooling file: {:?}", path);
@@ -33,7 +33,7 @@ impl Reader {
             // TODO: Remove unwrap
             let len = br.read_line(&mut line).unwrap();
 
-            trace!("Read line: {}/{}", len, line);
+            trace!("Read line: {} / {}", len, line);
 
             if len == 0 {
                 break;
@@ -44,7 +44,6 @@ impl Reader {
             partial = !line.as_str().ends_with('\n');
 
             // TODO: Also check for '\r\n'
-            trace!("Sending update...");
             sender
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.
@@ -62,13 +61,11 @@ impl Reader {
         watcher.watch(path.as_ref(), notify::RecursiveMode::Recursive);
 
         while let Some(m) = rx.recv().await {
-            trace!("Received update: {:#?}", m);
-
             match m {
                 Ok(event) => {
                     // TODO: Should this be a match to only work with the cases we want?
                     if let EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)) = event.kind {
-                        debug!("File truncated... reloading");
+                        trace!("File truncated... reloading");
 
                         // TODO: Remove unwrap
                         br = BufReader::new(std::fs::File::open(&path).unwrap());
@@ -80,7 +77,7 @@ impl Reader {
                     }
 
                     if let EventKind::Remove(_) = event.kind {
-                        debug!("File or directory removed... error");
+                        trace!("File or directory removed... error");
 
                         sender
                             .send(ReaderUpdate::FileError {
@@ -101,7 +98,6 @@ impl Reader {
                         continue;
                     }
 
-                    trace!("Seek to: {}", pos);
                     // TODO: Remove unwrap
                     br.seek(std::io::SeekFrom::Start(pos)).unwrap();
 
@@ -114,7 +110,7 @@ impl Reader {
                         // TODO: Remove unwrap
                         let len = br.read_line(&mut line).unwrap();
 
-                        trace!("Read line: {} / {}", line, len);
+                        trace!("Tail line: {} / {}", len, line);
 
                         if len == 0 {
                             break;
@@ -128,9 +124,8 @@ impl Reader {
 
                         // TODO: Send message to consumer
                         trace!(
-                            "Next line: {} {}",
+                            "Next line: {}",
                             if partial { "PARTIAL" } else { "COMPLETE" },
-                            line
                         );
 
                         sender

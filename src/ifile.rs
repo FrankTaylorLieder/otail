@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::{debug, error, info, trace};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{thread, usize};
@@ -23,26 +24,30 @@ pub type ReaderUpdateReceiver = mpsc::Receiver<ReaderUpdate>;
 #[derive(Debug)]
 pub enum ViewCommand {
     GetLine {
-        index: u32,
-        resp: ResultResponder<Option<String>>,
+        id: String,
+        line_no: u32,
     },
-    RegisterUpdates {
+    RegisterUpdater {
+        id: String,
         updater: ViewUpdateSender,
-    },
-    RegisterTail {
-        index: u32,
-        resp: ResultResponder<String>,
     },
 }
 
 #[derive(Debug)]
 pub enum ViewUpdate {
+    Change {
+        line_no: u32, // 1-based line numbers.
+        line_chars: u32,
+        line_bytes: u32,
+        file_bytes: u32,
+        partial: bool,
+    },
     Line {
         line_no: u32,
         line: String,
+        line_chars: u32,
         line_bytes: u32,
         partial: bool,
-        file_bytes: u32,
     },
     Truncated,
     FileError {
@@ -67,8 +72,17 @@ pub enum ReaderUpdate {
 #[derive(Debug)]
 struct SLine {
     content: String,
-    index: u32,
-    length: u32,
+    line_no: u32,
+    line_chars: u32,
+    line_bytes: u32,
+    partial: bool,
+}
+
+#[derive(Debug)]
+struct Updater {
+    id: String,
+    channel: ViewUpdateSender,
+    line_no: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -81,8 +95,7 @@ pub struct IFile {
     lines: Vec<SLine>,
     line_count: u32,
     byte_count: u32,
-    view_update_senders: Vec<ViewUpdateSender>,
-    tailers: Vec<ResultResponder<String>>,
+    view_updaters: HashMap<String, Updater>,
 }
 
 impl IFile {
@@ -102,8 +115,7 @@ impl IFile {
             lines: vec![],
             line_count: 0,
             byte_count: 0,
-            view_update_senders: vec![],
-            tailers: vec![],
+            view_updaters: HashMap::new(),
         }
     }
 
@@ -158,7 +170,6 @@ impl IFile {
     }
 
     async fn handle_reader_update(&mut self, update: ReaderUpdate) {
-        trace!("Handle reader update: {:?}", update);
         match update {
             ReaderUpdate::Line {
                 line,
@@ -166,44 +177,56 @@ impl IFile {
                 partial,
                 file_bytes,
             } => {
-                trace!("Adding line: {} / {:?}", partial, self.line_count);
+                let line_chars = line.len() as u32;
 
                 if partial {
                     self.lines[self.line_count as usize - 1] = SLine {
                         content: line.clone(),
-                        index: self.line_count,
-                        length: line_bytes,
+                        line_no: self.line_count,
+                        line_chars: line.len() as u32,
+                        line_bytes,
+                        partial: true,
                     }
                 } else {
+                    self.line_count += 1;
+
                     self.lines.push(SLine {
                         content: line.clone(),
-                        index: self.line_count,
-                        length: line_bytes,
+                        line_no: self.line_count,
+                        line_chars: line.len() as u32,
+                        line_bytes,
+                        partial: false,
                     });
-
-                    self.line_count += 1;
                 }
                 self.byte_count = file_bytes;
 
-                for updater in self.view_update_senders.iter() {
-                    trace!("Sending update");
-                    // TODO: Deal with unwrap
-                    updater
-                        .send(ViewUpdate::Line {
-                            line_no: self.line_count - 1,
-                            line: line.clone(),
-                            line_bytes,
-                            partial,
-                            file_bytes,
-                        })
-                        .await
-                        .unwrap();
-                }
+                trace!(
+                    "Adding/updating line: {} / partial: {} / len: {}",
+                    self.line_count,
+                    partial,
+                    line_chars
+                );
 
-                while let Some(t) = self.tailers.pop() {
-                    trace!("Sending line to tailer");
-                    // TODO: Remove unwrap
-                    t.send(line.clone()).unwrap();
+                for (id, updater) in self.view_updaters.iter_mut() {
+                    if (updater.line_no == Some(self.line_count)) {
+                        trace!("Sending update to view: {}", id);
+                        // TODO: Deal with unwrap
+                        updater
+                            .channel
+                            .send(ViewUpdate::Change {
+                                line_no: self.line_count,
+                                line_chars,
+                                line_bytes,
+                                file_bytes,
+                                partial,
+                            })
+                            .await
+                            .unwrap();
+
+                        if !partial {
+                            updater.line_no = None;
+                        }
+                    }
                 }
             }
             ReaderUpdate::Truncated => {
@@ -212,19 +235,22 @@ impl IFile {
                 self.lines = vec![];
                 self.byte_count = 0;
 
-                for updater in self.view_update_senders.iter() {
+                for (id, updater) in self.view_updaters.iter_mut() {
                     trace!("Sending truncate");
                     // TODO: Deal with unwrap
-                    updater.send(ViewUpdate::Truncated).await.unwrap();
+                    updater.line_no = None;
+                    updater.channel.send(ViewUpdate::Truncated).await.unwrap();
                 }
             }
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
 
-                for updater in self.view_update_senders.iter() {
+                for (id, updater) in self.view_updaters.iter_mut() {
                     trace!("Forwarding error");
                     // TODO: Deal with unwrap
+                    updater.line_no = None;
                     updater
+                        .channel
                         .send(ViewUpdate::FileError {
                             reason: reason.clone(),
                         })
@@ -236,26 +262,44 @@ impl IFile {
     }
 
     async fn handle_view_command(&mut self, cmd: ViewCommand) {
-        trace!("Handle view command: {:?}", cmd);
         match cmd {
-            ViewCommand::GetLine { index, resp } => {
-                trace!("Getting line: {}", index);
-                let sl = self.lines.get(index as usize);
-                resp.send(sl.map(|sl| sl.content.clone()));
-            }
-            ViewCommand::RegisterUpdates { updater } => {
-                trace!("Registering an updater");
-                self.view_update_senders.push(updater);
-            }
-            ViewCommand::RegisterTail { index, resp } => {
-                trace!("Tail: {}", index);
-                let sl = self.lines.get(index as usize);
-                let Some(sl) = sl else {
-                    trace!("Waiting for next line...");
-                    self.tailers.push(resp);
+            ViewCommand::GetLine { id, line_no } => {
+                trace!("Getting line: {} / {}", id, line_no);
+                let Some(updater) = self.view_updaters.get_mut(&id) else {
+                    error!("Unknown updater, ignoring request: {}", id);
                     return;
                 };
-                resp.send(sl.content.clone());
+
+                let sl = self.lines.get((line_no - 1) as usize);
+                match sl {
+                    None => {
+                        trace!("Registering interest in: {} / {}", id, line_no);
+                        updater.line_no = Some(line_no);
+                    }
+                    Some(sl) => {
+                        updater
+                            .channel
+                            .send(ViewUpdate::Line {
+                                line_no,
+                                line: sl.content.clone(),
+                                line_chars: sl.line_chars,
+                                line_bytes: sl.line_bytes,
+                                partial: sl.partial,
+                            })
+                            .await;
+                    }
+                }
+            }
+            ViewCommand::RegisterUpdater { id, updater } => {
+                trace!("Registering an updater: {}", id);
+                self.view_updaters.insert(
+                    id.clone(),
+                    Updater {
+                        id,
+                        channel: updater,
+                        line_no: None,
+                    },
+                );
             }
         }
     }

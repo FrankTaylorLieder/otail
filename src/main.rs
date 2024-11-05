@@ -22,6 +22,7 @@ pub async fn main() -> Result<()> {
     let mut ifile = IFile::new(&args.path);
 
     let mut view = ConsoleView::new(
+        "ConsoleView".to_owned(),
         args.path.to_owned(),
         ifile.get_view_sender(),
         update_sender,
