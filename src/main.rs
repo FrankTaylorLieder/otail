@@ -18,27 +18,35 @@ pub async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let (update_sender, update_receiver) = mpsc::channel(10);
     let mut ifile = IFile::new(&args.path);
 
     let mut view = ConsoleView::new(
-        "ConsoleView".to_owned(),
+        "ConsoleViewTop".to_owned(),
         args.path.to_owned(),
         ifile.get_view_sender(),
-        update_sender,
-        update_receiver,
     );
+
+    let mut view_tail = ConsoleView::new(
+        "ConsoleViewTail".to_owned(),
+        args.path.to_owned(),
+        ifile.get_view_sender(),
+    );
+    view_tail.set_tail(true);
 
     info!("Starting rtail: {}", &args.path);
 
     let vh = tokio::spawn(async move {
         view.run().await;
     });
+    let vht = tokio::spawn(async move {
+        view_tail.run().await;
+    });
     let ifh = tokio::spawn(async move {
         ifile.run().await;
     });
 
     ifh.await?;
+    vht.await?;
     vh.await?;
 
     Ok(())

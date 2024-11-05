@@ -25,7 +25,7 @@ pub type ReaderUpdateReceiver = mpsc::Receiver<ReaderUpdate>;
 pub enum ViewCommand {
     GetLine {
         id: String,
-        line_no: u32,
+        line_no: Option<u32>,
     },
     RegisterUpdater {
         id: String,
@@ -208,21 +208,32 @@ impl IFile {
                 );
 
                 for (id, updater) in self.view_updaters.iter_mut() {
+                    trace!("Sending update to view: {}", id);
+                    // TODO: Deal with unwrap
+                    updater
+                        .channel
+                        .send(ViewUpdate::Change {
+                            line_no: self.line_count,
+                            line_chars,
+                            line_bytes,
+                            file_bytes,
+                            partial,
+                        })
+                        .await
+                        .unwrap();
                     if (updater.line_no == Some(self.line_count)) {
-                        trace!("Sending update to view: {}", id);
-                        // TODO: Deal with unwrap
+                        trace!("Sending line to: {}", id);
                         updater
                             .channel
-                            .send(ViewUpdate::Change {
+                            .send(ViewUpdate::Line {
                                 line_no: self.line_count,
+                                line: line.clone(),
                                 line_chars,
                                 line_bytes,
-                                file_bytes,
                                 partial,
                             })
                             .await
                             .unwrap();
-
                         if !partial {
                             updater.line_no = None;
                         }
@@ -264,16 +275,22 @@ impl IFile {
     async fn handle_view_command(&mut self, cmd: ViewCommand) {
         match cmd {
             ViewCommand::GetLine { id, line_no } => {
-                trace!("Getting line: {} / {}", id, line_no);
+                trace!("Getting line: {} / {:?}", id, line_no);
                 let Some(updater) = self.view_updaters.get_mut(&id) else {
                     error!("Unknown updater, ignoring request: {}", id);
+                    return;
+                };
+
+                let Some(line_no) = line_no else {
+                    trace!("Unregistering interest: {}", id);
+                    updater.line_no = None;
                     return;
                 };
 
                 let sl = self.lines.get((line_no - 1) as usize);
                 match sl {
                     None => {
-                        trace!("Registering interest in: {} / {}", id, line_no);
+                        trace!("Registering interest in: {} / {:?}", id, line_no);
                         updater.line_no = Some(line_no);
                     }
                     Some(sl) => {
