@@ -66,3 +66,11 @@ Commit: b3572fc
     <- Line
     <- Truncated
     <- Error
+
+  - TUI
+    - tui.rs in examples
+      - Build out a static version of the UI to play with concepts.
+      - OPEN: building a list backed by a large data structure
+        - Currently the list requires that all items are rendered each frame... this will not work if the file is large.
+        - TODO: Build a widget which only renders the items in the current view. E.g. LazyList.
+ 

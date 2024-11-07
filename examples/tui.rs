@@ -1,9 +1,14 @@
 #![allow(unused)]
 use anyhow::Result;
-use std::io::{self, stdout};
+use std::{
+    io::{self, stdout},
+    thread::{self, Thread},
+    time::Duration,
+};
 
 use ratatui::{
     backend::CrosstermBackend,
+    buffer::Buffer,
     crossterm::{
         event::{self, Event, KeyCode},
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -13,16 +18,59 @@ use ratatui::{
     style::{Style, Stylize},
     text::{Line, Span, Text},
     widgets::{
-        Block, Borders, Cell, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
-        TableState,
+        block::BlockExt, Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, StatefulWidget, Table, TableState, Widget,
     },
     DefaultTerminal, Frame, Terminal,
 };
+
+#[derive(Debug)]
+struct LazyState {
+    items: Vec<String>,
+    current: u32,
+}
+
+#[derive(Debug)]
+struct LazyList<'a> {
+    block: Option<Block<'a>>,
+}
+
+impl<'a> LazyList<'a> {
+    pub fn new() -> Self {
+        Self { block: None }
+    }
+
+    pub fn block(mut self, block: Block<'a>) -> Self {
+        self.block = Some(block);
+        self
+    }
+}
+
+impl<'a> StatefulWidget for &mut LazyList<'a> {
+    type State = LazyState;
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        self.block.render(area, buf);
+        let inner = self.block.inner_if_some(area);
+
+        let height = inner.height;
+        Text::from(
+            state
+                .items
+                .iter()
+                .enumerate()
+                .take(height as usize - 1)
+                .map(|(i, s)| Line::from(s.clone()))
+                .collect::<Vec<Line>>(),
+        )
+        .render(inner, buf);
+    }
+}
 
 struct App {
     state: TableState,
     items: Vec<String>,
     scroll_state: ScrollbarState,
+    ls: LazyState,
 
     cell_renders: u32,
 }
@@ -41,8 +89,12 @@ impl App {
 
         Self {
             state: TableState::default().with_selected(0),
-            items: content,
+            items: content.clone(),
             scroll_state: ScrollbarState::new(len),
+            ls: LazyState {
+                items: content.clone(),
+                current: 0,
+            },
 
             cell_renders: 0,
         }
@@ -53,6 +105,8 @@ impl App {
         while !should_quit {
             terminal.draw(|frame| self.draw(frame))?;
             should_quit = self.handle_events()?;
+
+            // thread::sleep(Duration::from_millis(10));
         }
 
         disable_raw_mode()?;
@@ -135,7 +189,10 @@ impl App {
         self.render_file_table(frame, file_area);
         self.render_scrollbar(frame, file_area);
         frame.render_widget(Block::bordered().title("Controls"), controls_area);
-        frame.render_widget(Block::bordered().title("Filtered"), filter_area);
+
+        let mut ll = LazyList::new().block(Block::bordered().title("Filtered"));
+        frame.render_stateful_widget(&mut ll, filter_area, &mut self.ls);
+        // frame.render_widget(Block::bordered().title("Filtered"), filter_area);
     }
 
     fn compute_file_stats(&mut self) -> String {
