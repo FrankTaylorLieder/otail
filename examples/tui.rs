@@ -16,10 +16,11 @@ use ratatui::{
     },
     layout::{Alignment, Constraint, Layout, Margin, Rect},
     style::{Style, Stylize},
+    symbols,
     text::{Line, Span, Text},
     widgets::{
-        block::BlockExt, Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation,
-        ScrollbarState, StatefulWidget, Table, TableState, Widget,
+        block::BlockExt, Block, BorderType, Borders, Cell, Paragraph, Row, Scrollbar,
+        ScrollbarOrientation, ScrollbarState, StatefulWidget, Table, TableState, Widget,
     },
     DefaultTerminal, Frame, Terminal,
 };
@@ -87,6 +88,8 @@ struct App {
     filter_scroll_state: ScrollbarState,
 
     cell_renders: u32,
+
+    current_window: bool,
 }
 
 impl App {
@@ -117,6 +120,8 @@ impl App {
             },
 
             cell_renders: 0,
+
+            current_window: false,
         }
     }
 
@@ -141,20 +146,15 @@ impl App {
                 if key.kind == event::KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
-                        KeyCode::Char('j') => self.scroll(1),
-                        KeyCode::Char('k') => self.scroll(-1),
+                        KeyCode::Char('j') | KeyCode::Down => self.scroll(1),
+                        KeyCode::Char('k') | KeyCode::Up => self.scroll(-1),
                         // TODO: Scroll by visible page size
                         KeyCode::Char('d') => self.scroll(20),
                         KeyCode::Char('u') => self.scroll(-20),
                         KeyCode::Char('g') => self.top(),
                         KeyCode::Char('G') => self.bottom(),
 
-                        // TODO: Use tab to switch which view is current and apply all keys to that
-                        // view.
-                        //
-                        // Filtered view keys
-                        KeyCode::Down => self.filter_scroll(1),
-                        KeyCode::Up => self.filter_scroll(-1),
+                        KeyCode::Tab => self.current_window = !self.current_window,
 
                         _ => {}
                     }
@@ -165,14 +165,24 @@ impl App {
         Ok(false)
     }
 
+    fn get_window_bits(&mut self) -> (&mut LazyState, &mut ScrollbarState) {
+        if self.current_window {
+            (&mut self.filter_state, &mut self.filter_scroll_state)
+        } else {
+            (&mut self.content_state, &mut self.content_scroll_state)
+        }
+    }
+
     fn place(&mut self, i: usize) {
-        self.content_state.select(Some(i as u32));
-        self.content_scroll_state = self.content_scroll_state.position(i);
+        let (state, scroll_state) = self.get_window_bits();
+        state.select(Some(i as u32));
+        scroll_state.position(i);
     }
 
     fn scroll(&mut self, delta: i32) {
-        let i = match self.content_state.selected() {
-            Some(i) => clamped_add(i as u32, delta, (self.items.len() - 1) as u32) as usize,
+        let (state, scroll_state) = self.get_window_bits();
+        let i = match state.selected() {
+            Some(i) => clamped_add(i as u32, delta, (state.items.len() - 1) as u32) as usize,
             None => 0,
         };
 
@@ -185,20 +195,6 @@ impl App {
 
     fn bottom(&mut self) {
         self.place(self.items.len() - 1);
-    }
-
-    fn filter_place(&mut self, i: usize) {
-        self.filter_state.select(Some(i as u32));
-        self.filter_scroll_state = self.content_scroll_state.position(i);
-    }
-
-    fn filter_scroll(&mut self, delta: i32) {
-        let i = match self.filter_state.selected() {
-            Some(i) => clamped_add(i as u32, delta, (self.items.len() - 1) as u32) as usize,
-            None => 0,
-        };
-
-        self.filter_place(i);
     }
 
     fn draw(&mut self, frame: &mut Frame) {
@@ -223,19 +219,22 @@ impl App {
         frame.render_widget(file_stats, stats_area);
 
         let widths = [Constraint::Length(5), Constraint::Fill(1)];
-        // let file_table = Table::new(rows, widths)
-        //     .block(Block::bordered().title("File"))
-        //     .highlight_symbol(">");
-        // frame.render_widget(file_table, file_area);
 
-        // self.render_file_table(frame, file_area);
-        let mut content = LazyList::new().block(Block::bordered().title("Content"));
+        let mut content = LazyList::new().block(
+            Block::bordered()
+                .border_set(self.selected_border(!self.current_window))
+                .title("Content"),
+        );
         frame.render_stateful_widget(content, file_area, &mut self.content_state);
         self.render_scrollbar(frame, file_area);
 
         frame.render_widget(Block::bordered().title("Controls"), controls_area);
 
-        let mut ll = LazyList::new().block(Block::bordered().title("Filtered"));
+        let mut ll = LazyList::new().block(
+            Block::bordered()
+                .border_set(self.selected_border(self.current_window))
+                .title("Filtered"),
+        );
         frame.render_stateful_widget(ll, filter_area, &mut self.filter_state);
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -248,7 +247,14 @@ impl App {
             }),
             &mut self.filter_scroll_state,
         );
-        // frame.render_widget(Block::bordered().title("Filtered"), filter_area);
+    }
+
+    fn selected_border(&self, selected: bool) -> symbols::border::Set {
+        if selected {
+            symbols::border::THICK
+        } else {
+            symbols::border::PLAIN
+        }
     }
 
     fn compute_file_stats(&mut self) -> String {
