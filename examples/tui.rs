@@ -29,6 +29,8 @@ use ratatui::{
 struct LazyState {
     items: Vec<String>,
     current: Option<u32>,
+
+    cell_renders: u32,
 }
 
 impl LazyState {
@@ -66,17 +68,28 @@ impl<'a> StatefulWidget for LazyList<'a> {
         let height = inner.height;
         let width = inner.width;
 
-        Text::from(
-            state
+        let current = state.current.unwrap_or(0);
+
+        let mut lines = Vec::new();
+        for i in current..(current + height as u32) {
+            if i >= state.items.len() as u32 {
+                break;
+            }
+            let s = state
                 .items
-                .iter()
-                .enumerate()
-                .skip(state.current.unwrap_or(0) as usize)
-                .take(height as usize)
-                .map(|(i, s)| Line::from(format!("{:>5} {l:.w$}", i, w = width as usize, l = s)))
-                .collect::<Vec<Line>>(),
-        )
-        .render(inner, buf);
+                .get(i as usize)
+                .expect("Out of bounds accessing items");
+
+            lines.push(Line::from(format!(
+                "{:>5} {l:.w$}",
+                i,
+                w = width as usize,
+                l = s
+            )));
+
+            state.cell_renders += 1;
+        }
+        Text::from(lines).render(inner, buf);
     }
 }
 
@@ -84,10 +97,11 @@ struct App {
     items: Vec<String>,
     content_state: LazyState,
     content_scroll_state: ScrollbarState,
+    content_tail: bool,
+
     filter_state: LazyState,
     filter_scroll_state: ScrollbarState,
-
-    cell_renders: u32,
+    filter_tail: bool,
 
     // true for content, false for filter
     current_window: bool,
@@ -98,7 +112,7 @@ struct App {
 impl App {
     fn new() -> Self {
         let mut content: Vec<String> = Vec::new();
-        let len = 100;
+        let len = 10000;
         for i in (0..len) {
             content.push(format!(
                 "Line {} - {}",
@@ -113,16 +127,18 @@ impl App {
             content_state: LazyState {
                 items: content.clone(),
                 current: None,
+                cell_renders: 0,
             },
             content_scroll_state: ScrollbarState::new(len),
+            content_tail: false,
 
             filter_scroll_state: ScrollbarState::new(len),
             filter_state: LazyState {
                 items: content.clone(),
                 current: None,
+                cell_renders: 0,
             },
-
-            cell_renders: 0,
+            filter_tail: false,
 
             current_window: true,
             content_fill: 7,
@@ -134,8 +150,6 @@ impl App {
         while !should_quit {
             terminal.draw(|frame| self.draw(frame))?;
             should_quit = self.handle_events()?;
-
-            // thread::sleep(Duration::from_millis(10));
         }
 
         disable_raw_mode()?;
@@ -160,6 +174,8 @@ impl App {
 
                         KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1),
                         KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1),
+
+                        KeyCode::Char('t') => self.toggle_tail(),
 
                         KeyCode::Tab => self.current_window = !self.current_window,
 
@@ -212,6 +228,14 @@ impl App {
         self.content_fill = clamped_add(self.content_fill, delta, 1, 9);
     }
 
+    fn toggle_tail(&mut self) {
+        if self.current_window {
+            self.content_tail = !self.content_tail;
+        } else {
+            self.filter_tail = !self.filter_tail;
+        }
+    }
+
     fn draw(&mut self, frame: &mut Frame) {
         let [title_area, main_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
@@ -223,14 +247,22 @@ impl App {
         .areas(main_area);
 
         let filename = Span::from("File: /foo/bar").italic();
-        // let file_stats = Line::from("10 Lines (1024 bytes)")
+        let tail_status = Line::from(format!(
+            "{} Tail",
+            if self.content_tail { "☑" } else { "☐" }
+        ));
         let file_stats = Line::from(self.compute_file_stats())
             .reversed()
             .alignment(Alignment::Right);
-        let title_layout = Layout::horizontal([Constraint::Fill(4), Constraint::Length(30)]);
-        let [filename_area, stats_area] = title_layout.areas(title_area);
+        let title_layout = Layout::horizontal([
+            Constraint::Fill(4),
+            Constraint::Length(10),
+            Constraint::Length(30),
+        ]);
+        let [filename_area, tail_area, stats_area] = title_layout.areas(title_area);
 
         frame.render_widget(filename, filename_area);
+        frame.render_widget(tail_status, tail_area);
         frame.render_widget(file_stats, stats_area);
 
         let widths = [Constraint::Length(5), Constraint::Fill(1)];
@@ -243,14 +275,22 @@ impl App {
         frame.render_stateful_widget(content, file_area, &mut self.content_state);
         self.render_scrollbar(frame, file_area);
 
-        frame.render_widget(Block::bordered().title("Controls"), controls_area);
+        // frame.render_widget(Block::bordered().title("Controls"), controls_area);
+        let filter_controls = Span::from(format!(
+            " {} Tail",
+            if self.filter_tail { "☑" } else { "☐" }
+        ));
+        frame.render_widget(
+            Paragraph::new(filter_controls).block(Block::bordered().title("Controls")),
+            controls_area,
+        );
 
-        let mut ll = LazyList::new().block(
+        let mut filter_content = LazyList::new().block(
             Block::bordered()
                 .border_set(self.selected_border(!self.current_window))
                 .title("Filtered"),
         );
-        frame.render_stateful_widget(ll, filter_area, &mut self.filter_state);
+        frame.render_stateful_widget(filter_content, filter_area, &mut self.filter_state);
         frame.render_stateful_widget(
             Scrollbar::default()
                 .orientation(ScrollbarOrientation::VerticalRight)
@@ -273,11 +313,8 @@ impl App {
     }
 
     fn compute_file_stats(&mut self) -> String {
-        format!(
-            "{} Lines ({} cell renders)",
-            self.items.len(),
-            self.cell_renders
-        )
+        let cell_renders = self.content_state.cell_renders + self.filter_state.cell_renders;
+        format!("{} Lines ({} cell renders)", self.items.len(), cell_renders)
     }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
