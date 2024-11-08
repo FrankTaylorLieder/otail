@@ -27,7 +27,17 @@ use ratatui::{
 #[derive(Debug)]
 struct LazyState {
     items: Vec<String>,
-    current: u32,
+    current: Option<u32>,
+}
+
+impl LazyState {
+    pub fn select(&mut self, position: Option<u32>) {
+        self.current = position;
+    }
+
+    pub fn selected(&self) -> Option<u32> {
+        self.current
+    }
 }
 
 #[derive(Debug)]
@@ -46,20 +56,23 @@ impl<'a> LazyList<'a> {
     }
 }
 
-impl<'a> StatefulWidget for &mut LazyList<'a> {
+impl<'a> StatefulWidget for LazyList<'a> {
     type State = LazyState;
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         self.block.render(area, buf);
         let inner = self.block.inner_if_some(area);
 
         let height = inner.height;
+        let width = inner.width;
+
         Text::from(
             state
                 .items
                 .iter()
                 .enumerate()
-                .take(height as usize - 1)
-                .map(|(i, s)| Line::from(s.clone()))
+                .skip(state.current.unwrap_or(0) as usize)
+                .take(height as usize)
+                .map(|(i, s)| Line::from(format!("{:>5} {l:.w$}", i, w = width as usize, l = s)))
                 .collect::<Vec<Line>>(),
         )
         .render(inner, buf);
@@ -67,10 +80,11 @@ impl<'a> StatefulWidget for &mut LazyList<'a> {
 }
 
 struct App {
-    state: TableState,
     items: Vec<String>,
-    scroll_state: ScrollbarState,
-    ls: LazyState,
+    content_state: LazyState,
+    content_scroll_state: ScrollbarState,
+    filter_state: LazyState,
+    filter_scroll_state: ScrollbarState,
 
     cell_renders: u32,
 }
@@ -78,7 +92,7 @@ struct App {
 impl App {
     fn new() -> Self {
         let mut content: Vec<String> = Vec::new();
-        let len = 10000;
+        let len = 100;
         for i in (0..len) {
             content.push(format!(
                 "Line {} - {}",
@@ -88,12 +102,18 @@ impl App {
         }
 
         Self {
-            state: TableState::default().with_selected(0),
             items: content.clone(),
-            scroll_state: ScrollbarState::new(len),
-            ls: LazyState {
+
+            content_state: LazyState {
                 items: content.clone(),
-                current: 0,
+                current: None,
+            },
+            content_scroll_state: ScrollbarState::new(len),
+
+            filter_scroll_state: ScrollbarState::new(len),
+            filter_state: LazyState {
+                items: content.clone(),
+                current: None,
             },
 
             cell_renders: 0,
@@ -121,13 +141,21 @@ impl App {
                 if key.kind == event::KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
-                        KeyCode::Char('j') | KeyCode::Down => self.scroll(1),
-                        KeyCode::Char('k') | KeyCode::Up => self.scroll(-1),
+                        KeyCode::Char('j') => self.scroll(1),
+                        KeyCode::Char('k') => self.scroll(-1),
                         // TODO: Scroll by visible page size
                         KeyCode::Char('d') => self.scroll(20),
                         KeyCode::Char('u') => self.scroll(-20),
                         KeyCode::Char('g') => self.top(),
                         KeyCode::Char('G') => self.bottom(),
+
+                        // TODO: Use tab to switch which view is current and apply all keys to that
+                        // view.
+                        //
+                        // Filtered view keys
+                        KeyCode::Down => self.filter_scroll(1),
+                        KeyCode::Up => self.filter_scroll(-1),
+
                         _ => {}
                     }
                 }
@@ -138,12 +166,12 @@ impl App {
     }
 
     fn place(&mut self, i: usize) {
-        self.state.select(Some(i));
-        self.scroll_state = self.scroll_state.position(i);
+        self.content_state.select(Some(i as u32));
+        self.content_scroll_state = self.content_scroll_state.position(i);
     }
 
     fn scroll(&mut self, delta: i32) {
-        let i = match self.state.selected() {
+        let i = match self.content_state.selected() {
             Some(i) => clamped_add(i as u32, delta, (self.items.len() - 1) as u32) as usize,
             None => 0,
         };
@@ -157,6 +185,20 @@ impl App {
 
     fn bottom(&mut self) {
         self.place(self.items.len() - 1);
+    }
+
+    fn filter_place(&mut self, i: usize) {
+        self.filter_state.select(Some(i as u32));
+        self.filter_scroll_state = self.content_scroll_state.position(i);
+    }
+
+    fn filter_scroll(&mut self, delta: i32) {
+        let i = match self.filter_state.selected() {
+            Some(i) => clamped_add(i as u32, delta, (self.items.len() - 1) as u32) as usize,
+            None => 0,
+        };
+
+        self.filter_place(i);
     }
 
     fn draw(&mut self, frame: &mut Frame) {
@@ -186,12 +228,26 @@ impl App {
         //     .highlight_symbol(">");
         // frame.render_widget(file_table, file_area);
 
-        self.render_file_table(frame, file_area);
+        // self.render_file_table(frame, file_area);
+        let mut content = LazyList::new().block(Block::bordered().title("Content"));
+        frame.render_stateful_widget(content, file_area, &mut self.content_state);
         self.render_scrollbar(frame, file_area);
+
         frame.render_widget(Block::bordered().title("Controls"), controls_area);
 
         let mut ll = LazyList::new().block(Block::bordered().title("Filtered"));
-        frame.render_stateful_widget(&mut ll, filter_area, &mut self.ls);
+        frame.render_stateful_widget(ll, filter_area, &mut self.filter_state);
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None),
+            filter_area.inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut self.filter_scroll_state,
+        );
         // frame.render_widget(Block::bordered().title("Filtered"), filter_area);
     }
 
@@ -203,36 +259,36 @@ impl App {
         )
     }
 
-    fn render_file_table(&mut self, frame: &mut Frame, area: Rect) {
-        // let header_style = Style::default().reversed();
-        // let header = ["Index", "Content"]
-        //     .into_iter()
-        //     .map(Cell::from)
-        //     .collect::<Row>()
-        //     .style(header_style)
-        //     .height(1);
-
-        let selected_style = Style::default().bold();
-
-        let rows = self.items.iter().enumerate().map(|(i, data)| {
-            // TODO: Only render cells that are going to be displayed.
-            self.cell_renders += 1;
-            // TODO: Render proper line numbers.
-            let item = ["XXX", data];
-            item.into_iter()
-                .map(|c| Cell::from(Text::raw(c)))
-                .collect::<Row>()
-                .height(1)
-        });
-
-        let table = Table::new(rows, [Constraint::Length(5), Constraint::Fill(1)])
-            // .header(header)
-            .block(Block::bordered().title("Content"))
-            .highlight_symbol(Text::from(">"))
-            .highlight_style(selected_style);
-
-        frame.render_stateful_widget(table, area, &mut self.state);
-    }
+    // fn render_file_table(&mut self, frame: &mut Frame, area: Rect) {
+    //     // let header_style = Style::default().reversed();
+    //     // let header = ["Index", "Content"]
+    //     //     .into_iter()
+    //     //     .map(Cell::from)
+    //     //     .collect::<Row>()
+    //     //     .style(header_style)
+    //     //     .height(1);
+    //
+    //     let selected_style = Style::default().bold();
+    //
+    //     let rows = self.items.iter().enumerate().map(|(i, data)| {
+    //         // TODO: Only render cells that are going to be displayed.
+    //         self.cell_renders += 1;
+    //         // TODO: Render proper line numbers.
+    //         let item = ["XXX", data];
+    //         item.into_iter()
+    //             .map(|c| Cell::from(Text::raw(c)))
+    //             .collect::<Row>()
+    //             .height(1)
+    //     });
+    //
+    //     let table = Table::new(rows, [Constraint::Length(5), Constraint::Fill(1)])
+    //         // .header(header)
+    //         .block(Block::bordered().title("Content"))
+    //         .highlight_symbol(Text::from(">"))
+    //         .highlight_style(selected_style);
+    //
+    //     frame.render_stateful_widget(table, area, &mut self.state);
+    // }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
         frame.render_stateful_widget(
@@ -244,7 +300,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.scroll_state,
+            &mut self.content_scroll_state,
         );
     }
 }
