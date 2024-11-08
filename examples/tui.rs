@@ -89,7 +89,10 @@ struct App {
 
     cell_renders: u32,
 
+    // true for content, false for filter
     current_window: bool,
+    // Fill ratio for content pane... 1..9
+    content_fill: u32,
 }
 
 impl App {
@@ -121,7 +124,8 @@ impl App {
 
             cell_renders: 0,
 
-            current_window: false,
+            current_window: true,
+            content_fill: 7,
         }
     }
 
@@ -154,6 +158,9 @@ impl App {
                         KeyCode::Char('g') => self.top(),
                         KeyCode::Char('G') => self.bottom(),
 
+                        KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1),
+                        KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1),
+
                         KeyCode::Tab => self.current_window = !self.current_window,
 
                         _ => {}
@@ -167,9 +174,9 @@ impl App {
 
     fn get_window_bits(&mut self) -> (&mut LazyState, &mut ScrollbarState) {
         if self.current_window {
-            (&mut self.filter_state, &mut self.filter_scroll_state)
-        } else {
             (&mut self.content_state, &mut self.content_scroll_state)
+        } else {
+            (&mut self.filter_state, &mut self.filter_scroll_state)
         }
     }
 
@@ -182,7 +189,7 @@ impl App {
     fn scroll(&mut self, delta: i32) {
         let (state, scroll_state) = self.get_window_bits();
         let i = match state.selected() {
-            Some(i) => clamped_add(i as u32, delta, (state.items.len() - 1) as u32) as usize,
+            Some(i) => clamped_add(i as u32, delta, 0, (state.items.len() - 1) as u32) as usize,
             None => 0,
         };
 
@@ -197,13 +204,21 @@ impl App {
         self.place(self.items.len() - 1);
     }
 
+    fn resize(&mut self, delta: i32) {
+        let mut delta = delta;
+        if !self.current_window {
+            delta = -delta;
+        }
+        self.content_fill = clamped_add(self.content_fill, delta, 1, 9);
+    }
+
     fn draw(&mut self, frame: &mut Frame) {
         let [title_area, main_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
         let [file_area, controls_area, filter_area] = Layout::vertical([
-            Constraint::Percentage(70),
+            Constraint::Fill(self.content_fill as u16),
             Constraint::Length(3),
-            Constraint::Fill(1),
+            Constraint::Fill(10 - self.content_fill as u16),
         ])
         .areas(main_area);
 
@@ -222,7 +237,7 @@ impl App {
 
         let mut content = LazyList::new().block(
             Block::bordered()
-                .border_set(self.selected_border(!self.current_window))
+                .border_set(self.selected_border(self.current_window))
                 .title("Content"),
         );
         frame.render_stateful_widget(content, file_area, &mut self.content_state);
@@ -232,7 +247,7 @@ impl App {
 
         let mut ll = LazyList::new().block(
             Block::bordered()
-                .border_set(self.selected_border(self.current_window))
+                .border_set(self.selected_border(!self.current_window))
                 .title("Filtered"),
         );
         frame.render_stateful_widget(ll, filter_area, &mut self.filter_state);
@@ -265,37 +280,6 @@ impl App {
         )
     }
 
-    // fn render_file_table(&mut self, frame: &mut Frame, area: Rect) {
-    //     // let header_style = Style::default().reversed();
-    //     // let header = ["Index", "Content"]
-    //     //     .into_iter()
-    //     //     .map(Cell::from)
-    //     //     .collect::<Row>()
-    //     //     .style(header_style)
-    //     //     .height(1);
-    //
-    //     let selected_style = Style::default().bold();
-    //
-    //     let rows = self.items.iter().enumerate().map(|(i, data)| {
-    //         // TODO: Only render cells that are going to be displayed.
-    //         self.cell_renders += 1;
-    //         // TODO: Render proper line numbers.
-    //         let item = ["XXX", data];
-    //         item.into_iter()
-    //             .map(|c| Cell::from(Text::raw(c)))
-    //             .collect::<Row>()
-    //             .height(1)
-    //     });
-    //
-    //     let table = Table::new(rows, [Constraint::Length(5), Constraint::Fill(1)])
-    //         // .header(header)
-    //         .block(Block::bordered().title("Content"))
-    //         .highlight_symbol(Text::from(">"))
-    //         .highlight_style(selected_style);
-    //
-    //     frame.render_stateful_widget(table, area, &mut self.state);
-    // }
-
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -324,12 +308,12 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn clamped_add(a: u32, b: i32, max: u32) -> u32 {
+fn clamped_add(a: u32, b: i32, min: u32, max: u32) -> u32 {
     let v = a as i64 + b as i64;
     if v > max as i64 {
         max
-    } else if v < 0 {
-        0
+    } else if v < min as i64 {
+        min
     } else {
         v as u32
     }
