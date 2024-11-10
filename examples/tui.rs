@@ -1,10 +1,15 @@
 #![allow(unused)]
-use anyhow::Result;
+use anyhow::{bail, Result};
+use crossterm::event::EventStream;
+use futures::{FutureExt, StreamExt};
+use futures_timer::Delay;
+use log::trace;
 use std::{
     io::{self, stdout},
     thread::{self, Thread},
     time::Duration,
 };
+use tokio::{select, sync::mpsc, time::interval};
 
 use ratatui::{
     backend::CrosstermBackend,
@@ -145,7 +150,7 @@ impl App {
         }
     }
 
-    fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+    fn run_old(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         let mut should_quit = false;
         while !should_quit {
             terminal.draw(|frame| self.draw(frame))?;
@@ -158,7 +163,72 @@ impl App {
         Ok(())
     }
 
+    async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+        let mut should_quit = false;
+
+        let mut reader = EventStream::new();
+        let mut interval = tokio::time::interval(Duration::from_millis(1_000));
+        while !should_quit {
+            terminal.draw(|frame| self.draw(frame))?;
+
+            let mut timeout = interval.tick();
+            let crossterm_event = reader.next().fuse();
+            select! {
+                _ = timeout => {
+                    trace!("Run loop timeout... tick");
+                },
+                maybe_event = crossterm_event => {
+                    trace!("Event: {:?}", maybe_event);
+                    match maybe_event {
+                        Some(Ok(e)) => {
+                            should_quit = self.handle_event(&e)?;
+                        },
+                        Some(Err(err)) => {
+                            println!("Error: {:?}", err);
+                            bail!("Event error: {:?}", err);
+                        },
+                        None => {}
+                    }
+                }
+            }
+        }
+
+        disable_raw_mode()?;
+        stdout().execute(LeaveAlternateScreen)?;
+
+        Ok(())
+    }
+
+    fn handle_event(&mut self, event: &Event) -> io::Result<bool> {
+        if let Event::Key(key) = event {
+            if key.kind == event::KeyEventKind::Press {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
+                    KeyCode::Char('j') | KeyCode::Down => self.scroll(1),
+                    KeyCode::Char('k') | KeyCode::Up => self.scroll(-1),
+                    // TODO: Scroll by visible page size
+                    KeyCode::Char('d') => self.scroll(20),
+                    KeyCode::Char('u') => self.scroll(-20),
+                    KeyCode::Char('g') => self.top(),
+                    KeyCode::Char('G') => self.bottom(),
+
+                    KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1),
+                    KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1),
+
+                    KeyCode::Char('t') => self.toggle_tail(),
+
+                    KeyCode::Tab => self.current_window = !self.current_window,
+
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
     fn handle_events(&mut self) -> io::Result<bool> {
+        // TODO: Use EventStream to make this async
         if event::poll(std::time::Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == event::KeyEventKind::Press {
@@ -332,13 +402,16 @@ impl App {
     }
 }
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    env_logger::init();
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let app = App::new();
-    app.run(terminal);
+    app.run(terminal).await;
 
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
