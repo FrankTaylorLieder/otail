@@ -70,7 +70,18 @@ Commit: b3572fc
   - TUI
     - tui.rs in examples
       - Build out a static version of the UI to play with concepts.
-      - OPEN: building a list backed by a large data structure
+      - DONE: building a list backed by a large data structure
         - Currently the list requires that all items are rendered each frame... this will not work if the file is large.
-        - TODO: Build a widget which only renders the items in the current view. E.g. LazyList.
- 
+        - DONE: Build a widget which only renders the items in the current view. E.g. LazyList.
+      - DONE Make this event drive so it only updates the UI when something has happened.
+
+Commit: c6a16cd
+
+- Next: integrate the TUI into the main program.
+  - Call the View directly from the TUI, or merge. Handle all events in the TUI, passing them to the View for processing.
+  - Beef up the LazyList -> LazyTable - i.e. multi-column (to support FilterView match line numbers).
+  - Tailing? Can we send a command to the TUI after updating the View to ensure we render the end of the View buffer.
+  - View should only store lines that are currently visible.
+    - Need to pass view size into handler.
+  - IFile should not store data, just line indexes.
+  - Colouring is done in the View.
