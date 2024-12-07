@@ -8,9 +8,17 @@ use tokio::sync::{mpsc, oneshot};
 use crate::ifile::{
     ViewCommand, ViewCommandsSender, ViewUpdate, ViewUpdateReceiver, ViewUpdateSender,
 };
-use crate::view::View;
+use crate::view::{LineRange, View};
 
-pub struct ConsoleView {
+#[derive(Debug)]
+pub enum TUICallbackCommand {
+    ChangeSelected { line: u32 },
+    Truncated,
+    Error { message: String },
+}
+
+#[derive(Debug)]
+pub struct TuiView {
     id: String,
     path: String,
     update_sender: ViewUpdateSender,
@@ -37,7 +45,27 @@ fn clamped_sub(a: u32, b: u32) -> u32 {
     }
 }
 
-impl View for ConsoleView {
+impl View for TuiView {
+    fn set_tail(&mut self, tail: bool) {
+        self.tailing = tail;
+
+        self.current_first_line = 0;
+        self.lines = VecDeque::new();
+        self.requested_first_line = clamped_sub(self.file_lines, self.requested_lines) + 1;
+    }
+
+    fn get_line(&self, line: u32) -> Option<String> {
+        todo!()
+    }
+
+    fn set_line_range(&mut self, range: LineRange) {
+        todo!()
+    }
+
+    fn num_lines(&self) -> u32 {
+        self.file_lines
+    }
+
     async fn run(&mut self, commands_sender: ViewCommandsSender) -> Result<()> {
         debug!("{}: Console View starting: {:?}", self.id, self.path);
 
@@ -81,32 +109,12 @@ impl View for ConsoleView {
 
         Ok(())
     }
-
-    fn set_tail(&mut self, tail: bool) {
-        self.tailing = tail;
-
-        self.current_first_line = 0;
-        self.lines = VecDeque::new();
-        self.requested_first_line = clamped_sub(self.file_lines, self.requested_lines) + 1;
-    }
-
-    fn get_line(&self, line: u32) -> Option<String> {
-        todo!()
-    }
-
-    fn set_line_range(&mut self, range: crate::view::LineRange) {
-        todo!()
-    }
-
-    fn num_lines(&self) -> u32 {
-        todo!()
-    }
 }
 
-impl ConsoleView {
-    fn new(id: String, path: String) -> Self {
+impl TuiView {
+    pub fn new(id: String, path: String) -> Self {
         let (update_sender, update_receiver) = mpsc::channel(10);
-        ConsoleView {
+        TuiView {
             id,
             path,
             update_sender,
@@ -148,7 +156,7 @@ impl ConsoleView {
         None
     }
 
-    fn handle_update(&mut self, update: ViewUpdate) {
+    fn handle_update(&mut self, update: ViewUpdate) -> Option<TUICallbackCommand> {
         match update {
             ViewUpdate::Change {
                 line_no,
@@ -164,6 +172,8 @@ impl ConsoleView {
 
                 self.file_lines = line_no;
                 self.file_bytes = file_bytes;
+
+                None
             }
             ViewUpdate::Line {
                 line_no,
@@ -191,13 +201,22 @@ impl ConsoleView {
                     self.lines.pop_front();
                     self.current_first_line += 1;
                     self.requested_first_line += 1;
+
+                    // TODO: Handle new line when tailing
+                    None
+                } else {
+                    None
                 }
             }
             ViewUpdate::Truncated => {
                 debug!("{}: File truncated", self.id);
+
+                Some(TUICallbackCommand::Truncated)
             }
             ViewUpdate::FileError { reason } => {
                 error!("{}: File error: {reason}", self.id);
+
+                Some(TUICallbackCommand::Error { message: reason })
             }
         }
     }

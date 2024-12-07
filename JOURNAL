@@ -85,3 +85,24 @@ Commit: c6a16cd
     - Need to pass view size into handler.
   - IFile should not store data, just line indexes.
   - Colouring is done in the View.
+
+Design:
+
+  TUI -> View (Method)
+    Get line
+    Set line range (to drive caching)
+    Change tail state
+    
+  View -> TUI (Command)
+    Change selected line (last (tailing), first (truncated))
+    Truncated (to drive something in the display)
+    Error
+
+  View -> IFile
+    Register updater
+    Request line
+
+  View <- IFile
+    Truncated
+    Line
+    Error
