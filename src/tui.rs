@@ -107,7 +107,8 @@ impl<'a> StatefulWidget for LazyList<'a> {
 }
 
 pub struct Tui {
-    items: Vec<String>,
+    path: String,
+
     content_state: LazyState,
     content_scroll_state: ScrollbarState,
     content_tail: bool,
@@ -123,29 +124,19 @@ pub struct Tui {
 }
 
 impl Tui {
-    pub fn new(content_view: TuiView, filter_view: TuiView) -> Self {
-        let mut content: Vec<String> = Vec::new();
-        let len = 10000;
-        for i in (0..len) {
-            content.push(format!(
-                "Line {} - {}",
-                i,
-                std::iter::repeat("X").take(i).collect::<String>()
-            ));
-        }
-
+    pub fn new(path: String, content_view: TuiView, filter_view: TuiView) -> Self {
         Self {
-            items: content.clone(),
+            path,
 
             content_state: LazyState {
                 view: content_view,
                 current: None,
                 cell_renders: 0,
             },
-            content_scroll_state: ScrollbarState::new(len),
+            content_scroll_state: ScrollbarState::new(0),
             content_tail: false,
 
-            filter_scroll_state: ScrollbarState::new(len),
+            filter_scroll_state: ScrollbarState::new(0),
             filter_state: LazyState {
                 view: filter_view,
                 current: None,
@@ -284,7 +275,7 @@ impl Tui {
     }
 
     fn bottom(&mut self) {
-        self.place(self.items.len() - 1);
+        self.place((self.content_state.view.num_lines() - 1) as usize)
     }
 
     fn resize(&mut self, delta: i32) {
@@ -313,7 +304,7 @@ impl Tui {
         ])
         .areas(main_area);
 
-        let filename = Span::from("File: /foo/bar").italic();
+        let filename = Span::from(format!("File: {}", &self.path)).italic();
         let tail_status = Line::from(format!(
             "{} Tail",
             if self.content_tail { "☑" } else { "☐" }
@@ -381,7 +372,11 @@ impl Tui {
 
     fn compute_file_stats(&mut self) -> String {
         let cell_renders = self.content_state.cell_renders + self.filter_state.cell_renders;
-        format!("{} Lines ({} cell renders)", self.items.len(), cell_renders)
+        format!(
+            "{} Lines ({} cell renders)",
+            self.content_state.view.num_lines(),
+            cell_renders
+        )
     }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {

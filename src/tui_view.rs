@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Seek};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use log::{debug, error, trace};
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
@@ -21,11 +23,16 @@ pub enum TUICallbackCommand {
 pub struct TuiView {
     id: String,
     path: String,
+    br: BufReader<File>,
+
+    commands_sender: ViewCommandsSender,
     update_sender: ViewUpdateSender,
     update_receiver: ViewUpdateReceiver,
 
     file_lines: u32,
     file_bytes: u32,
+
+    offsets: Vec<u32>,
 
     requested_first_line: u32,
     requested_lines: u32,
@@ -54,8 +61,12 @@ impl View for TuiView {
         self.requested_first_line = clamped_sub(self.file_lines, self.requested_lines) + 1;
     }
 
-    fn get_line(&self, line: u32) -> Option<String> {
-        todo!()
+    fn get_line(&mut self, line: u32) -> Option<String> {
+        if line >= self.file_lines {
+            return None;
+        }
+
+        self.fetch_line(line)
     }
 
     fn set_line_range(&mut self, range: LineRange) {
@@ -66,62 +77,73 @@ impl View for TuiView {
         self.file_lines
     }
 
-    async fn run(&mut self, commands_sender: ViewCommandsSender) -> Result<()> {
-        debug!("{}: Console View starting: {:?}", self.id, self.path);
-
-        commands_sender
-            .send(ViewCommand::RegisterUpdater {
-                id: self.id.clone(),
-                updater: self.update_sender.clone(),
-            })
-            .await?;
-
-        loop {
-            let nl = self.determine_next_line();
-            trace!("{}: determine_next_line: {:?}", self.id, nl);
-
-            if nl != self.pending_line {
-                trace!("{}: Requesting next line: {:?}", self.id, nl);
-
-                commands_sender
-                    .send(ViewCommand::GetLine {
-                        id: self.id.clone(),
-                        line_no: nl,
-                    })
-                    .await?;
-
-                self.pending_line = nl;
-            }
-
-            select! {
-                update = self.update_receiver.recv() => {
-                    match update {
-                        Some(update) => {
-                            self.handle_update(update);
-                        },
-                        None => {
-                            todo!()
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
+    // async fn run(&mut self, commands_sender: ViewCommandsSender) -> Result<()> {
+    //     commands_sender
+    //         .send(ViewCommand::RegisterUpdater {
+    //             id: self.id.clone(),
+    //             updater: self.update_sender.clone(),
+    //         })
+    //         .await?;
+    //
+    //     tokio::spawn(async move {
+    //         debug!("{}: Console View starting: {:?}", self.id, self.path);
+    //
+    //         loop {
+    //             let nl = self.determine_next_line();
+    //             trace!("{}: determine_next_line: {:?}", self.id, nl);
+    //
+    //             if nl != self.pending_line {
+    //                 trace!("{}: Requesting next line: {:?}", self.id, nl);
+    //
+    //                 commands_sender
+    //                     .send(ViewCommand::GetLine {
+    //                         id: self.id.clone(),
+    //                         line_no: nl,
+    //                     })
+    //                     .await
+    //                     .unwrap();
+    //
+    //                 self.pending_line = nl;
+    //             }
+    //
+    //             select! {
+    //                 update = self.update_receiver.recv() => {
+    //                     match update {
+    //                         Some(update) => {
+    //                             self.handle_update(update);
+    //                         },
+    //                         None => {
+    //                             todo!()
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     });
+    //
+    //     Ok(())
+    // }
 }
 
 impl TuiView {
-    pub fn new(id: String, path: String) -> Self {
+    pub fn new(id: String, path: String, commands_sender: ViewCommandsSender) -> Self {
+        let mut f = std::fs::File::open(&path).unwrap();
+        let mut br = BufReader::new(std::fs::File::open(&path).unwrap());
+
         let (update_sender, update_receiver) = mpsc::channel(10);
         TuiView {
             id,
             path,
+            br,
+
+            commands_sender,
             update_sender,
             update_receiver,
 
             file_lines: 0,
             file_bytes: 0,
+
+            offsets: Vec::new(),
 
             requested_first_line: 1,
             requested_lines: 4,
@@ -132,6 +154,21 @@ impl TuiView {
 
             pending_line: None,
         }
+    }
+
+    fn fetch_line(&mut self, line: u32) -> Option<String> {
+        let Some(offset) = self.offsets.get(line as usize) else {
+            return None;
+        };
+
+        self.br
+            .seek(std::io::SeekFrom::Start(*offset as u64))
+            .unwrap();
+
+        let mut line = String::new();
+        let len = self.br.read_line(&mut line).unwrap();
+
+        Some(line)
     }
 
     fn determine_next_line(&self) -> Option<u32> {

@@ -3,11 +3,12 @@ use std::io::stdout;
 
 use anyhow::Result;
 use clap::{command, Parser};
+use flexi_logger::FileSpec;
 use log::info;
-use rtail::console_view::ConsoleView;
 use rtail::ifile::IFile;
 use rtail::tui::Tui;
 use rtail::tui_view::TuiView;
+use rtail::{console_view::ConsoleView, view::View};
 use tokio::sync::mpsc;
 
 use ratatui::{
@@ -37,16 +38,20 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    flexi_logger::Logger::try_with_env()?
+        .log_to_file(FileSpec::default().suffix("log").use_timestamp(false))
+        .start()?;
 
     let args = Args::parse();
 
-    let content_view = TuiView::new("Content".to_owned(), args.path.clone());
+    let ifile = IFile::new(&args.path);
+
+    let mut content_view = TuiView::new("Content".to_owned(), args.path.clone());
 
     // TODO: Switch to a real filtered View
     let filter_view = TuiView::new("Filter".to_owned(), args.path.clone());
 
-    let app = Tui::new(content_view, filter_view);
+    let app = Tui::new(args.path.clone(), content_view, filter_view);
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;

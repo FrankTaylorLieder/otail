@@ -78,7 +78,7 @@ Commit: b3572fc
 Commit: c6a16cd
 
 - Next: integrate the TUI into the main program.
-  - Call the View directly from the TUI, or merge. Handle all events in the TUI, passing them to the View for processing.
+  - DONE Call the View directly from the TUI, or merge. Handle all events in the TUI, passing them to the View for processing.
   - Beef up the LazyList -> LazyTable - i.e. multi-column (to support FilterView match line numbers).
   - Tailing? Can we send a command to the TUI after updating the View to ensure we render the end of the View buffer.
   - View should only store lines that are currently visible.
@@ -88,12 +88,12 @@ Commit: c6a16cd
 
 Design:
 
-  TUI -> View (Method)
+  TUI -> View (TUICommand/TUIResponse)
     Get line
     Set line range (to drive caching)
     Change tail state
     
-  View -> TUI (Command)
+  View -> TUI (TUIEvent)
     Change selected line (last (tailing), first (truncated))
     Truncated (to drive something in the display)
     Error
@@ -106,3 +106,28 @@ Design:
     Truncated
     Line
     Error
+
+ISSUE: How do we arrange the TUI and TUIVIew from a threading perspective?
+- API calls TUI -> TV.
+  - The TV caches content, or reads directly from the file to get content.
+- Messages TV <-> iFile
+  - The iFile only maintains the current structure of the file, indexes of the lines.
+  - New follow on content can be requested TV -> iFile.
+  - It actively sends updates to the TV when the file length changes or new data is available.
+- The TUI has its own event loop for managing the UI.
+
+FAILED SOLUTION: Make the TUI -> View channel based. Keep with the same pattern
+all across the system. FAIL: The TUI needs a sync call to get the line data
+during rendering.
+  - It also cannot maintain its own cache locally, because it also need sync
+    access to the filtered line -> file line mapping for filtered views.
+
+FAILED SOLUTION: Make the View objects owned by the TUI. It will handle the
+Async responses from ifile, passing them into the relevant View. Who can
+process them, and tell the TUI what to do.
+  - FAILED: The async loop in the TUI is about responding to UI events, not
+    handling data events which could need no re-render.
+    - E.g. data comes from an ifile -> View and FilterView. Both need to be
+      routed. After the View update, we know the file is 1 lines longer
+      (re-render OK). But the FV may not match the new line, so does not need a
+      re-render.

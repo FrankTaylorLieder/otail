@@ -90,7 +90,7 @@ impl View for ConsoleView {
         self.requested_first_line = clamped_sub(self.file_lines, self.requested_lines) + 1;
     }
 
-    fn get_line(&self, line: u32) -> Option<String> {
+    fn get_line(&mut self, line: u32) -> Option<String> {
         todo!()
     }
 
