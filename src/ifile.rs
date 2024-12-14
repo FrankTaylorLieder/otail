@@ -1,6 +1,6 @@
 use anyhow::Result;
-use log::{debug, error, info, trace};
-use std::collections::HashMap;
+use log::{debug, error, info, trace, warn};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{thread, usize};
@@ -8,60 +8,42 @@ use tokio::fs::File;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::reader::Reader;
+use crate::reader::{Reader, ReaderUpdate, ReaderUpdateReceiver, ReaderUpdateSender};
 
-pub type ViewCommandsSender = mpsc::Sender<ViewCommand>;
-pub type ViewCommandsReceiver = mpsc::Receiver<ViewCommand>;
+pub type IFReqSender = mpsc::Sender<IFReq>;
+pub type IFReqReceiver = mpsc::Receiver<IFReq>;
 
-pub type ViewUpdateSender = mpsc::Sender<ViewUpdate>;
-pub type ViewUpdateReceiver = mpsc::Receiver<ViewUpdate>;
-
-pub type ResultResponder<T> = oneshot::Sender<T>;
-
-pub type ReaderUpdateSender = mpsc::Sender<ReaderUpdate>;
-pub type ReaderUpdateReceiver = mpsc::Receiver<ReaderUpdate>;
+pub type IFRespSender = mpsc::Sender<IFResp>;
+pub type IFRespReceiver = mpsc::Receiver<IFResp>;
 
 #[derive(Debug)]
-pub enum ViewCommand {
+pub enum IFReq {
     GetLine {
         id: String,
-        line_no: Option<u32>,
+        line_no: u32, // 0-based
     },
-    RegisterUpdater {
+    CancelLine {
         id: String,
-        updater: ViewUpdateSender,
+        line_no: u32, // 0-based
+    },
+    RegisterClient {
+        id: String,
+        client_sender: IFRespSender,
     },
 }
 
 #[derive(Debug)]
-pub enum ViewUpdate {
-    Change {
-        line_no: u32, // 1-based line numbers.
-        line_chars: u32,
-        line_bytes: u32,
+pub enum IFResp {
+    Stats {
+        file_lines: u32,
         file_bytes: u32,
-        partial: bool,
     },
     Line {
         line_no: u32,
-        line: String,
+        line_content: String,
         line_chars: u32,
         line_bytes: u32,
         partial: bool,
-    },
-    Truncated,
-    FileError {
-        reason: String,
-    },
-}
-
-#[derive(Debug)]
-pub enum ReaderUpdate {
-    Line {
-        line: String,
-        line_bytes: u32,
-        partial: bool,
-        file_bytes: u32,
     },
     Truncated,
     FileError {
@@ -79,23 +61,24 @@ struct SLine {
 }
 
 #[derive(Debug)]
-struct Updater {
+struct Client {
     id: String,
-    channel: ViewUpdateSender,
-    line_no: Option<u32>,
+    channel: IFRespSender,
+    tailing: bool,
+    interested: HashSet<u32>,
 }
 
 #[derive(Debug)]
 pub struct IFile {
-    view_receiver: ViewCommandsReceiver,
-    view_sender: ViewCommandsSender,
+    view_receiver: IFReqReceiver,
+    view_sender: IFReqSender,
     reader_receiver: ReaderUpdateReceiver,
     reader_sender: ReaderUpdateSender,
     path: PathBuf,
     lines: Vec<SLine>,
-    line_count: u32,
-    byte_count: u32,
-    view_updaters: HashMap<String, Updater>,
+    file_lines: u32,
+    file_bytes: u32,
+    clients: HashMap<String, Client>,
 }
 
 impl IFile {
@@ -113,9 +96,9 @@ impl IFile {
             reader_receiver,
             reader_sender,
             lines: vec![],
-            line_count: 0,
-            byte_count: 0,
-            view_updaters: HashMap::new(),
+            file_lines: 0,
+            file_bytes: 0,
+            clients: HashMap::new(),
         }
     }
 
@@ -127,7 +110,7 @@ impl IFile {
         });
     }
 
-    pub fn get_view_sender(&self) -> ViewCommandsSender {
+    pub fn get_view_sender(&self) -> IFReqSender {
         self.view_sender.clone()
     }
 
@@ -144,7 +127,7 @@ impl IFile {
                 cmd = self.view_receiver.recv() => {
                     match cmd {
                         Some(cmd) => {
-                            self.handle_view_command(cmd).await;
+                            self.handle_client_command(cmd).await;
                         },
                         None => {
                             todo!()
@@ -172,97 +155,92 @@ impl IFile {
     async fn handle_reader_update(&mut self, update: ReaderUpdate) {
         match update {
             ReaderUpdate::Line {
-                line,
+                line_content,
                 line_bytes,
                 partial,
                 file_bytes,
             } => {
-                let line_chars = line.len() as u32;
+                let line_chars = line_content.len() as u32;
 
+                let updated_line_no = self.file_lines;
                 if partial {
-                    self.lines[self.line_count as usize - 1] = SLine {
-                        content: line.clone(),
-                        line_no: self.line_count,
-                        line_chars: line.len() as u32,
+                    self.lines[self.file_lines as usize] = SLine {
+                        content: line_content.clone(),
+                        line_no: self.file_lines,
+                        line_chars: line_content.len() as u32,
                         line_bytes,
                         partial: true,
                     }
                 } else {
-                    self.line_count += 1;
-
                     self.lines.push(SLine {
-                        content: line.clone(),
-                        line_no: self.line_count,
-                        line_chars: line.len() as u32,
+                        content: line_content.clone(),
+                        line_no: self.file_lines,
+                        line_chars: line_content.len() as u32,
                         line_bytes,
                         partial: false,
                     });
+                    self.file_lines += 1;
                 }
-                self.byte_count = file_bytes;
+
+                self.file_bytes = file_bytes;
 
                 trace!(
                     "Adding/updating line: {} / partial: {} / len: {}",
-                    self.line_count,
+                    updated_line_no,
                     partial,
                     line_chars
                 );
 
-                for (id, updater) in self.view_updaters.iter_mut() {
-                    trace!("Sending update to view: {}", id);
+                for (id, client) in self.clients.iter_mut() {
+                    trace!("Sending update to client: {}", id);
                     // TODO: Deal with unwrap
-                    updater
+                    client
                         .channel
-                        .send(ViewUpdate::Change {
-                            line_no: self.line_count,
-                            line_chars,
-                            line_bytes,
+                        .send(IFResp::Stats {
+                            file_lines: self.file_lines,
                             file_bytes,
-                            partial,
                         })
                         .await
                         .unwrap();
-                    if (updater.line_no == Some(self.line_count)) {
+                    if (client.interested.remove(&updated_line_no)) {
                         trace!("Sending line to: {}", id);
-                        updater
+                        client
                             .channel
-                            .send(ViewUpdate::Line {
-                                line_no: self.line_count,
-                                line: line.clone(),
+                            .send(IFResp::Line {
+                                line_no: self.file_lines,
+                                line_content: line_content.clone(),
                                 line_chars,
                                 line_bytes,
                                 partial,
                             })
                             .await
                             .unwrap();
-                        if !partial {
-                            updater.line_no = None;
-                        }
                     }
                 }
             }
             ReaderUpdate::Truncated => {
                 trace!("File truncated... resetting ifile");
-                self.line_count = 0;
+                self.file_lines = 0;
                 self.lines = vec![];
-                self.byte_count = 0;
+                self.file_bytes = 0;
 
-                for (id, updater) in self.view_updaters.iter_mut() {
+                for (id, client) in self.clients.iter_mut() {
                     trace!("Sending truncate");
                     // TODO: Deal with unwrap
-                    updater.line_no = None;
-                    updater.channel.send(ViewUpdate::Truncated).await.unwrap();
+                    client.interested = HashSet::new();
+                    client.channel.send(IFResp::Truncated).await.unwrap();
                 }
             }
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
 
-                for (id, updater) in self.view_updaters.iter_mut() {
+                for (id, updater) in self.clients.iter_mut() {
                     trace!("Forwarding error");
                     // TODO: Deal with unwrap
-                    updater.line_no = None;
+                    updater.interested = HashSet::new();
                     updater
                         .channel
-                        .send(ViewUpdate::FileError {
+                        .send(IFResp::FileError {
                             reason: reason.clone(),
                         })
                         .await
@@ -272,18 +250,12 @@ impl IFile {
         }
     }
 
-    async fn handle_view_command(&mut self, cmd: ViewCommand) {
+    async fn handle_client_command(&mut self, cmd: IFReq) {
         match cmd {
-            ViewCommand::GetLine { id, line_no } => {
+            IFReq::GetLine { id, line_no } => {
                 trace!("Getting line: {} / {:?}", id, line_no);
-                let Some(updater) = self.view_updaters.get_mut(&id) else {
-                    error!("Unknown updater, ignoring request: {}", id);
-                    return;
-                };
-
-                let Some(line_no) = line_no else {
-                    trace!("Unregistering interest: {}", id);
-                    updater.line_no = None;
+                let Some(client) = self.clients.get_mut(&id) else {
+                    warn!("Unknown client, ignoring request: {}", id);
                     return;
                 };
 
@@ -291,14 +263,15 @@ impl IFile {
                 match sl {
                     None => {
                         trace!("Registering interest in: {} / {:?}", id, line_no);
-                        updater.line_no = Some(line_no);
+                        client.interested.insert(line_no);
                     }
                     Some(sl) => {
-                        updater
+                        // TODO: Fetch the data from the file rather than locally stored data.
+                        client
                             .channel
-                            .send(ViewUpdate::Line {
+                            .send(IFResp::Line {
                                 line_no,
-                                line: sl.content.clone(),
+                                line_content: sl.content.clone(),
                                 line_chars: sl.line_chars,
                                 line_bytes: sl.line_bytes,
                                 partial: sl.partial,
@@ -307,14 +280,29 @@ impl IFile {
                     }
                 }
             }
-            ViewCommand::RegisterUpdater { id, updater } => {
-                trace!("Registering an updater: {}", id);
-                self.view_updaters.insert(
+            IFReq::CancelLine { id, line_no } => {
+                trace!("Cancel line: {} / {:?}", id, line_no);
+                let Some(client) = self.clients.get_mut(&id) else {
+                    warn!("Unknown client, ignoring request: {}", id);
+                    return;
+                };
+
+                if !client.interested.remove(&line_no) {
+                    warn!("Client cancelled line that was not registered for interest: client {}, line {}", id, line_no);
+                }
+            }
+            IFReq::RegisterClient {
+                id,
+                client_sender: updater,
+            } => {
+                trace!("Registering client: {}", id);
+                self.clients.insert(
                     id.clone(),
-                    Updater {
+                    Client {
                         id,
                         channel: updater,
-                        line_no: None,
+                        tailing: false,
+                        interested: HashSet::new(),
                     },
                 );
             }

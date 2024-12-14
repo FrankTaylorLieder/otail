@@ -86,7 +86,7 @@ Commit: c6a16cd
   - IFile should not store data, just line indexes.
   - Colouring is done in the View.
 
-Design:
+Design 1 (OLD)
 
   TUI -> View (TUICommand/TUIResponse)
     Get line
@@ -107,27 +107,97 @@ Design:
     Line
     Error
 
-ISSUE: How do we arrange the TUI and TUIVIew from a threading perspective?
-- API calls TUI -> TV.
-  - The TV caches content, or reads directly from the file to get content.
-- Messages TV <-> iFile
-  - The iFile only maintains the current structure of the file, indexes of the lines.
-  - New follow on content can be requested TV -> iFile.
-  - It actively sends updates to the TV when the file length changes or new data is available.
-- The TUI has its own event loop for managing the UI.
+  ISSUE: How do we arrange the TUI and TUIVIew from a threading perspective?
+  - API calls TUI -> TV.
+    - The TV caches content, or reads directly from the file to get content.
+  - Messages TV <-> iFile
+    - The iFile only maintains the current structure of the file, indexes of the lines.
+    - New follow on content can be requested TV -> iFile.
+    - It actively sends updates to the TV when the file length changes or new data is available.
+  - The TUI has its own event loop for managing the UI.
 
-FAILED SOLUTION: Make the TUI -> View channel based. Keep with the same pattern
-all across the system. FAIL: The TUI needs a sync call to get the line data
-during rendering.
-  - It also cannot maintain its own cache locally, because it also need sync
-    access to the filtered line -> file line mapping for filtered views.
+  FAILED SOLUTION: Make the TUI -> View channel based. Keep with the same pattern
+  all across the system. FAIL: The TUI needs a sync call to get the line data
+  during rendering.
+    - It also cannot maintain its own cache locally, because it also need sync
+      access to the filtered line -> file line mapping for filtered views.
 
-FAILED SOLUTION: Make the View objects owned by the TUI. It will handle the
-Async responses from ifile, passing them into the relevant View. Who can
-process them, and tell the TUI what to do.
-  - FAILED: The async loop in the TUI is about responding to UI events, not
-    handling data events which could need no re-render.
-    - E.g. data comes from an ifile -> View and FilterView. Both need to be
-      routed. After the View update, we know the file is 1 lines longer
-      (re-render OK). But the FV may not match the new line, so does not need a
-      re-render.
+  FAILED SOLUTION: Make the View objects owned by the TUI. It will handle the
+  Async responses from ifile, passing them into the relevant View. Who can
+  process them, and tell the TUI what to do.
+    - FAILED: The async loop in the TUI is about responding to UI events, not
+      handling data events which could need no re-render.
+      - E.g. data comes from an ifile -> View and FilterView. Both need to be
+        routed. After the View update, we know the file is 1 lines longer
+        (re-render OK). But the FV may not match the new line, so does not need a
+        re-render.
+
+Design 2 (CURRENT) 
+
+The TUI owns a View object which maintains the current data to render the
+display. The View can directly send messages to the IFile, but the TUI receives
+the messages from the IFile, handing them on to the View. This way the TUI can
+own the View to enable quick sync API calls to get the data to render.
+
+We separate the View from the filtering. So the FilteredView talks to a
+FilteredIFile, which in turn talks to the IFile.
+
+Responsibilities:
+
+- TUI: render the screen and take input from the user. The TUI owns the View
+  objects so can make API calls to them to change the Viewed content, filters
+  and tail state. Reads from the IFile back channels and forwards to the
+  relevant View.
+    - The TUI select should only ever receive messages that should trigger a
+      change in the display content. E.g. file stats, new content, new filtered
+      matches, truncation or error conditions. We must not send events to the
+      TUI which do not need to be rendered. 
+- View: hold the data which will be rendered. Understand what needs to be held
+  and request it from the IFile.
+- IFile: index the file and enable random access to the file contents on demand
+  from the View. Track what the View has requested but not been fulilled. Push
+  file stats (lines, bytes) and truncation/error conditions to the View.
+- Reader: Read the file contents, pushing to the IFile. Actively tails the file
+  to see new content ASAP.
+- FilteredIfile: maintain an index of lines that match the current filter.
+  Actively pull content from the IFile to see if it matches. Like and IFile, be
+  driven by the View to know what has been requested but not fulfilled. Also
+  actively push updates to the number of matches as they come in. Note: do
+  not forward overall file lines/bytes or truncation/error conditions to the
+  View.
+- FilteredView: Like a view, maintain the cache of displayable data to make
+  available to the TUI. Additionally provide API to change the filter.
+
+Messages:
+
+- IFReq
+  - Register client
+  - Request Line
+  - Cancel line request
+  - Set tailing
+  - Close
+
+- IFResp
+  - Line data
+  - Stats (lines, bytes)
+  - Truncated
+  - Error (e.g. deleted)
+
+- FIFReq
+  - IFReq
+    - Register client
+    - Request Line
+    - Cancel line request
+    - Set tailing
+    - Close
+  - Set filter
+
+- FIFResp
+  - Line data
+  - FStats (matching lines)
+
+- RUpdate
+  - Line data
+  - Stats (lines, bytes)
+  - Truncated
+  - Error

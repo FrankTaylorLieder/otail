@@ -7,7 +7,22 @@ use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Receiver};
 
-use crate::ifile::{ReaderUpdate, ReaderUpdateSender, ViewCommand, ViewCommandsSender};
+#[derive(Debug)]
+pub enum ReaderUpdate {
+    Line {
+        line_content: String,
+        line_bytes: u32,
+        partial: bool,
+        file_bytes: u32,
+    },
+    Truncated,
+    FileError {
+        reason: String,
+    },
+}
+
+pub type ReaderUpdateSender = mpsc::Sender<ReaderUpdate>;
+pub type ReaderUpdateReceiver = mpsc::Receiver<ReaderUpdate>;
 
 pub struct Reader {}
 
@@ -47,7 +62,7 @@ impl Reader {
             sender
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.
-                    line: line.clone(),
+                    line_content: line.clone(),
                     line_bytes,
                     partial,
                     file_bytes: pos as u32,
@@ -131,7 +146,7 @@ impl Reader {
                         sender
                             .send(ReaderUpdate::Line {
                                 // Deliver the whole line each time we send the line.
-                                line: line.clone(),
+                                line_content: line.clone(),
                                 line_bytes,
                                 partial,
                                 file_bytes: pos as u32,
