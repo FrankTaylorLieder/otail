@@ -4,11 +4,9 @@ use std::io::stdout;
 use anyhow::Result;
 use clap::{command, Parser};
 use flexi_logger::FileSpec;
-use log::info;
-use rtail::ifile::IFile;
+use log::{debug, info};
 use rtail::tui::Tui;
-use rtail::tui_view::TuiView;
-use rtail::{console_view::ConsoleView, view::View};
+use rtail::{ifile::IFile, view::View};
 use tokio::sync::mpsc;
 
 use ratatui::{
@@ -30,7 +28,7 @@ use ratatui::{
     DefaultTerminal, Frame, Terminal,
 };
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     path: String,
@@ -44,22 +42,40 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let ifile = IFile::new(&args.path);
+    info!("rtail starting: {:?}", args);
 
-    let mut content_view = TuiView::new("Content".to_owned(), args.path.clone());
+    let mut ifile = IFile::new(&args.path);
+
+    let mut content_view = View::new(
+        "Content".to_owned(),
+        args.path.clone(),
+        ifile.get_view_sender(),
+    );
 
     // TODO: Switch to a real filtered View
-    let filter_view = TuiView::new("Filter".to_owned(), args.path.clone());
+    let filter_view = View::new(
+        "Filter".to_owned(),
+        args.path.clone(),
+        ifile.get_view_sender(),
+    );
 
-    let app = Tui::new(args.path.clone(), content_view, filter_view);
+    let tui = Tui::new(args.path.clone(), content_view, filter_view);
+
+    let ifh = tokio::spawn(async move {
+        ifile.run().await;
+    });
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    app.run(terminal).await;
+    tui.run(terminal).await;
 
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
+
+    debug!("Waiting for ifile to finish");
+    //ifh.await;
+
     Ok(())
 }

@@ -30,7 +30,7 @@ use ratatui::{
     DefaultTerminal, Frame, Terminal,
 };
 
-use crate::{tui_view::TuiView, view::View};
+use crate::view::{View, ViewPort};
 
 #[derive(Debug)]
 struct ListRange {
@@ -41,7 +41,7 @@ struct ListRange {
 
 #[derive(Debug)]
 struct LazyState {
-    view: TuiView,
+    view: View,
     current: Option<u32>,
 
     cell_renders: u32,
@@ -124,7 +124,7 @@ pub struct Tui {
 }
 
 impl Tui {
-    pub fn new(path: String, content_view: TuiView, filter_view: TuiView) -> Self {
+    pub fn new(path: String, content_view: View, filter_view: View) -> Self {
         Self {
             path,
 
@@ -152,6 +152,16 @@ impl Tui {
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         let mut should_quit = false;
 
+        // TODO: Link the ifile with the TUI event loop
+
+        self.content_state.view.set_viewport(ViewPort {
+            first_line: 0,
+            num_lines: 50,
+        });
+        self.filter_state.view.set_viewport(ViewPort {
+            first_line: 0,
+            num_lines: 50,
+        });
         let mut reader = EventStream::new();
         let mut interval = tokio::time::interval(Duration::from_millis(1_000));
         while !should_quit {
@@ -213,37 +223,6 @@ impl Tui {
         Ok(false)
     }
 
-    fn handle_events(&mut self) -> io::Result<bool> {
-        // TODO: Use EventStream to make this async
-        if event::poll(std::time::Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == event::KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
-                        KeyCode::Char('j') | KeyCode::Down => self.scroll(1),
-                        KeyCode::Char('k') | KeyCode::Up => self.scroll(-1),
-                        // TODO: Scroll by visible page size
-                        KeyCode::Char('d') => self.scroll(20),
-                        KeyCode::Char('u') => self.scroll(-20),
-                        KeyCode::Char('g') => self.top(),
-                        KeyCode::Char('G') => self.bottom(),
-
-                        KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1),
-                        KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1),
-
-                        KeyCode::Char('t') => self.toggle_tail(),
-
-                        KeyCode::Tab => self.current_window = !self.current_window,
-
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        Ok(false)
-    }
-
     fn get_window_bits(&mut self) -> (&mut LazyState, &mut ScrollbarState) {
         if self.current_window {
             (&mut self.content_state, &mut self.content_scroll_state)
@@ -261,9 +240,12 @@ impl Tui {
     fn scroll(&mut self, delta: i32) {
         let (state, scroll_state) = self.get_window_bits();
         let i = match state.selected() {
-            Some(i) => {
-                clamped_add(i as u32, delta, 0, (state.view.num_lines() - 1) as u32) as usize
-            }
+            Some(i) => clamped_add(
+                i as u32,
+                delta,
+                0,
+                (state.view.get_stats().file_lines - 1) as u32,
+            ) as usize,
             None => 0,
         };
 
@@ -275,7 +257,7 @@ impl Tui {
     }
 
     fn bottom(&mut self) {
-        self.place((self.content_state.view.num_lines() - 1) as usize)
+        self.place((self.content_state.view.get_stats().file_lines - 1) as usize)
     }
 
     fn resize(&mut self, delta: i32) {
@@ -374,7 +356,7 @@ impl Tui {
         let cell_renders = self.content_state.cell_renders + self.filter_state.cell_renders;
         format!(
             "{} Lines ({} cell renders)",
-            self.content_state.view.num_lines(),
+            self.content_state.view.get_stats().file_lines,
             cell_renders
         )
     }
