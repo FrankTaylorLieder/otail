@@ -30,7 +30,10 @@ use ratatui::{
     DefaultTerminal, Frame, Terminal,
 };
 
-use crate::view::{View, ViewPort};
+use crate::{
+    ifile::{IFRespReceiver, IFRespSender},
+    view::{View, ViewPort},
+};
 
 #[derive(Debug)]
 struct ListRange {
@@ -109,6 +112,9 @@ impl<'a> StatefulWidget for LazyList<'a> {
 pub struct Tui {
     path: String,
 
+    content_ifr_recv: IFRespReceiver,
+    filter_ifr_recv: IFRespReceiver,
+
     content_state: LazyState,
     content_scroll_state: ScrollbarState,
     content_tail: bool,
@@ -124,9 +130,18 @@ pub struct Tui {
 }
 
 impl Tui {
-    pub fn new(path: String, content_view: View, filter_view: View) -> Self {
+    pub fn new(
+        path: String,
+        content_view: View,
+        filter_view: View,
+        content_ifr_recv: IFRespReceiver,
+        filter_ifr_recv: IFRespReceiver,
+    ) -> Self {
         Self {
             path,
+
+            content_ifr_recv,
+            filter_ifr_recv,
 
             content_state: LazyState {
                 view: content_view,
@@ -163,7 +178,7 @@ impl Tui {
             num_lines: 50,
         });
         let mut reader = EventStream::new();
-        let mut interval = tokio::time::interval(Duration::from_millis(1_000));
+        let mut interval = tokio::time::interval(Duration::from_millis(10_000));
         while !should_quit {
             terminal.draw(|frame| self.draw(frame))?;
 
@@ -177,7 +192,7 @@ impl Tui {
                     trace!("Event: {:?}", maybe_event);
                     match maybe_event {
                         Some(Ok(e)) => {
-                            should_quit = self.handle_event(&e)?;
+                            should_quit = self.handle_event(&e).await?;
                         },
                         Some(Err(err)) => {
                             println!("Error: {:?}", err);
@@ -185,6 +200,14 @@ impl Tui {
                         },
                         None => {}
                     }
+                },
+                content_resp = self.content_ifr_recv.recv() => {
+                    trace!("Content resp: {:?}", content_resp)
+                        // XXX
+                },
+                filter_resp = self.filter_ifr_recv.recv() => {
+                    trace!("Filter resp: {:?}", filter_resp)
+                    // XXX
                 }
             }
         }
@@ -195,7 +218,7 @@ impl Tui {
         Ok(())
     }
 
-    fn handle_event(&mut self, event: &Event) -> io::Result<bool> {
+    async fn handle_event(&mut self, event: &Event) -> io::Result<bool> {
         if let Event::Key(key) = event {
             if key.kind == event::KeyEventKind::Press {
                 match key.code {

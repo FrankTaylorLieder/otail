@@ -59,6 +59,7 @@ impl Reader {
             partial = !line.as_str().ends_with('\n');
 
             // TODO: Also check for '\r\n'
+            trace!("Reader sending line");
             sender
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.

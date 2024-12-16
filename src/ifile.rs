@@ -123,6 +123,7 @@ impl IFile {
 
         // TODO: Deal with closing command channels to signal shutting down
         loop {
+            trace!("Select...");
             select! {
                 cmd = self.view_receiver.recv() => {
                     match cmd {
@@ -253,7 +254,7 @@ impl IFile {
     async fn handle_client_command(&mut self, cmd: IFReq) {
         match cmd {
             IFReq::GetLine { id, line_no } => {
-                trace!("Getting line: {} / {:?}", id, line_no);
+                trace!("Client {} requested line {}", id, line_no);
                 let Some(client) = self.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
                     return;

@@ -7,7 +7,7 @@ use log::{debug, error, trace, warn};
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::ifile::{IFReqSender, IFResp};
+use crate::ifile::{IFReq, IFReqSender, IFResp, IFRespReceiver, IFRespSender};
 
 #[derive(Debug, Default)]
 pub struct ViewPort {
@@ -26,7 +26,8 @@ pub struct View {
     id: String,
     path: String,
 
-    ifile_sender: IFReqSender,
+    ifile_req_sender: IFReqSender,
+    ifile_resp_sender: IFRespSender,
 
     stats: Stats,
 
@@ -51,12 +52,32 @@ fn clamped_sub(a: u32, b: u32) -> u32 {
 }
 
 impl View {
-    pub fn set_tail(&mut self, tail: bool) {
-        self.tailing = tail;
+    pub fn new(
+        id: String,
+        path: String,
+        ifile_req_sender: IFReqSender,
+        ifile_resp_sender: IFRespSender,
+    ) -> Self {
+        let (ifile_resp_sender, ifile_resp_receiver) = mpsc::channel(10);
+        View {
+            id,
+            path,
 
-        todo!()
+            ifile_req_sender,
+
+            ifile_resp_sender,
+
+            stats: Stats::default(),
+
+            viewport: ViewPort::default(),
+            cached_lines: VecDeque::new(),
+
+            tailing: false,
+        }
     }
 
+    // Sync menthods... callable from the TUI render function.
+    //
     pub fn get_line(&mut self, line_no: u32) -> Option<&String> {
         if line_no < self.viewport.first_line
             || line_no >= self.viewport.first_line + self.viewport.num_lines
@@ -73,34 +94,40 @@ impl View {
         self.cached_lines.get(cache_index as usize)
     }
 
-    pub fn set_viewport(&mut self, viewport: ViewPort) {
-        self.viewport = viewport;
-        // TODO: Try to remember overlapping elements of the cache.
-        // TODO: Request missing lines from the IFile.
-        self.cached_lines.clear();
-    }
-
     pub fn get_stats(&self) -> Stats {
         self.stats.clone()
     }
 
-    pub fn new(id: String, path: String, ifile_sender: IFReqSender) -> Self {
-        View {
-            id,
-            path,
+    // Async methods... callable from the TUI event loop.
+    //
+    pub async fn set_tail(&mut self, tail: bool) {
+        self.tailing = tail;
 
-            ifile_sender,
+        todo!()
+    }
 
-            stats: Stats::default(),
+    pub async fn set_viewport(&mut self, viewport: ViewPort) {
+        self.viewport = viewport;
 
-            viewport: ViewPort::default(),
-            cached_lines: VecDeque::new(),
+        // TODO: Try to remember overlapping elements of the cache. Just clear for now to avoid
+        // nasty cache inconsistencies.
+        self.cached_lines.clear();
 
-            tailing: false,
+        // Request the lines we don't have.
+        for i in 0..self.viewport.num_lines {
+            let line_no = self.viewport.first_line + i;
+            trace!("Client {} sending line request {}", self.id, line_no);
+            // TODO: Fix undo
+            self.ifile_req_sender
+                .try_send(IFReq::GetLine {
+                    id: self.id.clone(),
+                    line_no,
+                })
+                .unwrap()
         }
     }
 
-    fn handle_update(&mut self, update: IFResp) -> Option<UpdateAction> {
+    pub async fn handle_update(&mut self, update: IFResp) -> Option<UpdateAction> {
         match update {
             IFResp::Line {
                 line_no,
