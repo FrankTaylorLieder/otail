@@ -58,13 +58,11 @@ impl View {
         ifile_req_sender: IFReqSender,
         ifile_resp_sender: IFRespSender,
     ) -> Self {
-        let (ifile_resp_sender, ifile_resp_receiver) = mpsc::channel(10);
         View {
             id,
             path,
 
             ifile_req_sender,
-
             ifile_resp_sender,
 
             stats: Stats::default(),
@@ -74,6 +72,18 @@ impl View {
 
             tailing: false,
         }
+    }
+
+    pub async fn init(&self) -> Result<()> {
+        let r = self
+            .ifile_req_sender
+            .send(IFReq::RegisterClient {
+                id: self.id.clone(),
+                client_sender: self.ifile_resp_sender.clone(),
+            })
+            .await?;
+
+        Ok(())
     }
 
     // Sync menthods... callable from the TUI render function.
@@ -106,7 +116,7 @@ impl View {
         todo!()
     }
 
-    pub async fn set_viewport(&mut self, viewport: ViewPort) {
+    pub async fn set_viewport(&mut self, viewport: ViewPort) -> Result<()> {
         self.viewport = viewport;
 
         // TODO: Try to remember overlapping elements of the cache. Just clear for now to avoid
@@ -117,14 +127,13 @@ impl View {
         for i in 0..self.viewport.num_lines {
             let line_no = self.viewport.first_line + i;
             trace!("Client {} sending line request {}", self.id, line_no);
-            // TODO: Fix undo
-            self.ifile_req_sender
-                .try_send(IFReq::GetLine {
-                    id: self.id.clone(),
-                    line_no,
-                })
-                .unwrap()
+            // TODO: Fix unwrap
+            self.ifile_req_sender.try_send(IFReq::GetLine {
+                id: self.id.clone(),
+                line_no,
+            })?
         }
+        Ok(())
     }
 
     pub async fn handle_update(&mut self, update: IFResp) -> Option<UpdateAction> {
@@ -141,6 +150,9 @@ impl View {
                     self.id,
                     if partial { "PARTIAL" } else { "COMPLETE" }
                 );
+
+                self.cached_lines
+                    .insert((line_no - self.viewport.first_line) as usize, line_content);
 
                 None
             }

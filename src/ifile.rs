@@ -86,8 +86,8 @@ impl IFile {
         let mut pb = PathBuf::new();
         pb.push(path);
 
-        let (view_sender, view_receiver) = mpsc::channel(10);
-        let (reader_sender, reader_receiver) = mpsc::channel(10);
+        let (view_sender, view_receiver) = mpsc::channel(100);
+        let (reader_sender, reader_receiver) = mpsc::channel(100);
 
         IFile {
             path: pb,
@@ -121,31 +121,33 @@ impl IFile {
 
         trace!("Waiting on commands/updates...");
 
-        // TODO: Deal with closing command channels to signal shutting down
         loop {
             trace!("Select...");
             select! {
                 cmd = self.view_receiver.recv() => {
                     match cmd {
                         Some(cmd) => {
-                            self.handle_client_command(cmd).await;
+                            self.handle_client_command(cmd).await?;
                         },
                         None => {
-                            todo!()
+                            debug!("Client IFR closed");
+                            break;
                         }
                     }
                 }
                 update = self.reader_receiver.recv() => {
                     match update {
                         Some(update) => {
-                            self.handle_reader_update(update).await;
+                            self.handle_reader_update(update).await?;
                         },
                         None => {
-                            todo!()
+                            debug!("Reader update channel closed");
+                            break;
                         }
                     }
                 }
             }
+            trace!("Looping...");
         }
 
         trace!("IFile finished");
@@ -153,7 +155,7 @@ impl IFile {
         Ok(())
     }
 
-    async fn handle_reader_update(&mut self, update: ReaderUpdate) {
+    async fn handle_reader_update(&mut self, update: ReaderUpdate) -> Result<()> {
         match update {
             ReaderUpdate::Line {
                 line_content,
@@ -201,8 +203,7 @@ impl IFile {
                             file_lines: self.file_lines,
                             file_bytes,
                         })
-                        .await
-                        .unwrap();
+                        .await?;
                     if (client.interested.remove(&updated_line_no)) {
                         trace!("Sending line to: {}", id);
                         client
@@ -214,10 +215,10 @@ impl IFile {
                                 line_bytes,
                                 partial,
                             })
-                            .await
-                            .unwrap();
+                            .await?;
                     }
                 }
+                Ok(())
             }
             ReaderUpdate::Truncated => {
                 trace!("File truncated... resetting ifile");
@@ -229,8 +230,10 @@ impl IFile {
                     trace!("Sending truncate");
                     // TODO: Deal with unwrap
                     client.interested = HashSet::new();
-                    client.channel.send(IFResp::Truncated).await.unwrap();
+                    client.channel.send(IFResp::Truncated).await?;
                 }
+
+                Ok(())
             }
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
@@ -244,30 +247,32 @@ impl IFile {
                         .send(IFResp::FileError {
                             reason: reason.clone(),
                         })
-                        .await
-                        .unwrap();
+                        .await?;
                 }
+                Ok(())
             }
         }
     }
 
-    async fn handle_client_command(&mut self, cmd: IFReq) {
+    async fn handle_client_command(&mut self, cmd: IFReq) -> Result<()> {
         match cmd {
             IFReq::GetLine { id, line_no } => {
                 trace!("Client {} requested line {}", id, line_no);
                 let Some(client) = self.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
-                    return;
+                    return Ok(());
                 };
 
-                let sl = self.lines.get((line_no - 1) as usize);
+                let sl = self.lines.get(line_no as usize);
                 match sl {
                     None => {
                         trace!("Registering interest in: {} / {:?}", id, line_no);
                         client.interested.insert(line_no);
+                        Ok(())
                     }
                     Some(sl) => {
                         // TODO: Fetch the data from the file rather than locally stored data.
+                        trace!("Returning line: {}", sl.content);
                         client
                             .channel
                             .send(IFResp::Line {
@@ -277,7 +282,8 @@ impl IFile {
                                 line_bytes: sl.line_bytes,
                                 partial: sl.partial,
                             })
-                            .await;
+                            .await?;
+                        Ok(())
                     }
                 }
             }
@@ -285,27 +291,35 @@ impl IFile {
                 trace!("Cancel line: {} / {:?}", id, line_no);
                 let Some(client) = self.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
-                    return;
+                    return Ok(());
                 };
 
                 if !client.interested.remove(&line_no) {
                     warn!("Client cancelled line that was not registered for interest: client {}, line {}", id, line_no);
                 }
+                Ok(())
             }
-            IFReq::RegisterClient {
-                id,
-                client_sender: updater,
-            } => {
+            IFReq::RegisterClient { id, client_sender } => {
                 trace!("Registering client: {}", id);
                 self.clients.insert(
                     id.clone(),
                     Client {
                         id,
-                        channel: updater,
+                        channel: client_sender.clone(),
                         tailing: false,
                         interested: HashSet::new(),
                     },
                 );
+
+                client_sender
+                    .send(IFResp::Stats {
+                        file_lines: 0,
+                        file_bytes: 0,
+                    })
+                    .await?;
+
+                trace!("Finished register");
+                Ok(())
             }
         }
     }

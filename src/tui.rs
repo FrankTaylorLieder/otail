@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use crossterm::event::EventStream;
 use futures::{FutureExt, StreamExt};
 use futures_timer::Delay;
-use log::trace;
+use log::{debug, info, trace};
 use std::{
     io::{self, stdout},
     thread::{self, Thread},
@@ -31,8 +31,8 @@ use ratatui::{
 };
 
 use crate::{
-    ifile::{IFRespReceiver, IFRespSender},
-    view::{View, ViewPort},
+    ifile::{IFReqSender, IFRespReceiver, IFRespSender},
+    view::{UpdateAction, View, ViewPort},
 };
 
 #[derive(Debug)]
@@ -112,8 +112,8 @@ impl<'a> StatefulWidget for LazyList<'a> {
 pub struct Tui {
     path: String,
 
-    content_ifr_recv: IFRespReceiver,
-    filter_ifr_recv: IFRespReceiver,
+    content_ifresp_recv: IFRespReceiver,
+    filter_ifresp_recv: IFRespReceiver,
 
     content_state: LazyState,
     content_scroll_state: ScrollbarState,
@@ -130,18 +130,28 @@ pub struct Tui {
 }
 
 impl Tui {
-    pub fn new(
-        path: String,
-        content_view: View,
-        filter_view: View,
-        content_ifr_recv: IFRespReceiver,
-        filter_ifr_recv: IFRespReceiver,
-    ) -> Self {
-        Self {
+    pub fn new(path: String, view_ifreq_sender: IFReqSender) -> Self {
+        let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(1000);
+        let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(1000);
+
+        let content_view = View::new(
+            "content".to_owned(),
+            path.clone(),
+            view_ifreq_sender.clone(),
+            content_ifresp_sender,
+        );
+        let filter_view = View::new(
+            "filter".to_owned(),
+            path.clone(),
+            view_ifreq_sender.clone(),
+            filter_ifresp_sender,
+        );
+
+        let s = Self {
             path,
 
-            content_ifr_recv,
-            filter_ifr_recv,
+            content_ifresp_recv,
+            filter_ifresp_recv,
 
             content_state: LazyState {
                 view: content_view,
@@ -161,22 +171,42 @@ impl Tui {
 
             current_window: true,
             content_fill: 7,
-        }
+        };
+
+        s.debug_recv("tui in new");
+        s
+    }
+
+    pub fn debug_recv(&self, location: &str) {
+        trace!(
+            "XXX TUI ifresp recv: {} {}",
+            location,
+            self.content_ifresp_recv.is_closed()
+        );
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         let mut should_quit = false;
 
-        // TODO: Link the ifile with the TUI event loop
+        self.debug_recv("run");
 
-        self.content_state.view.set_viewport(ViewPort {
-            first_line: 0,
-            num_lines: 50,
-        });
-        self.filter_state.view.set_viewport(ViewPort {
-            first_line: 0,
-            num_lines: 50,
-        });
+        self.content_state.view.init().await?;
+        self.filter_state.view.init().await?;
+
+        self.content_state
+            .view
+            .set_viewport(ViewPort {
+                first_line: 0,
+                num_lines: 10,
+            })
+            .await;
+        self.filter_state
+            .view
+            .set_viewport(ViewPort {
+                first_line: 0,
+                num_lines: 10,
+            })
+            .await;
         let mut reader = EventStream::new();
         let mut interval = tokio::time::interval(Duration::from_millis(10_000));
         while !should_quit {
@@ -201,13 +231,35 @@ impl Tui {
                         None => {}
                     }
                 },
-                content_resp = self.content_ifr_recv.recv() => {
-                    trace!("Content resp: {:?}", content_resp)
-                        // XXX
+                content_resp = self.content_ifresp_recv.recv() => {
+                    trace!("Content resp: {:?}", content_resp);
+                    match content_resp {
+                        None => {
+                            debug!("Content IFResp closed... finishing");
+                            break;
+                        }
+                        Some(cr) => {
+                            let reply = self.content_state.view.handle_update(cr).await;
+                            if let Some(update_action) = reply {
+                                self.handle_update_action(update_action);
+                            }
+                        }
+                    }
                 },
-                filter_resp = self.filter_ifr_recv.recv() => {
-                    trace!("Filter resp: {:?}", filter_resp)
-                    // XXX
+                filter_resp = self.filter_ifresp_recv.recv() => {
+                    trace!("Filter resp: {:?}", filter_resp);
+                    match filter_resp {
+                        None => {
+                            debug!("Filter IFResp closed... finishing");
+                            break;
+                        }
+                        Some(fr) => {
+                            let reply = self.filter_state.view.handle_update(fr).await;
+                            if let Some(update_action) = reply {
+                                self.handle_update_action(update_action);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -216,6 +268,11 @@ impl Tui {
         stdout().execute(LeaveAlternateScreen)?;
 
         Ok(())
+    }
+
+    fn handle_update_action(&mut self, update_action: UpdateAction) -> Result<()> {
+        trace!("Update action: {:?}", update_action);
+        todo!()
     }
 
     async fn handle_event(&mut self, event: &Event) -> io::Result<bool> {

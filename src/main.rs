@@ -4,7 +4,7 @@ use std::io::stdout;
 use anyhow::Result;
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
-use log::{debug, info};
+use log::{debug, info, trace};
 use rtail::tui::Tui;
 use rtail::{ifile::IFile, view::View};
 use tokio::sync::mpsc;
@@ -48,42 +48,20 @@ async fn main() -> anyhow::Result<()> {
 
     let mut ifile = IFile::new(&args.path);
 
-    let (content_ifr_send, content_ifr_recv) = mpsc::channel(10);
-    let mut content_view = View::new(
-        "Content".to_owned(),
-        args.path.clone(),
-        ifile.get_view_sender(),
-        content_ifr_send,
-    );
-
-    // TODO: Switch to a real filtered View
-    let (filter_ifr_send, filter_ifr_recv) = mpsc::channel(10);
-    let filter_view = View::new(
-        "Filter".to_owned(),
-        args.path.clone(),
-        ifile.get_view_sender(),
-        filter_ifr_send,
-    );
-
-    let tui = Tui::new(
-        args.path.clone(),
-        content_view,
-        filter_view,
-        content_ifr_recv,
-        filter_ifr_recv,
-    );
+    let tui = Tui::new(args.path.clone(), ifile.get_view_sender());
+    tui.debug_recv("main after new");
 
     let ifh = tokio::spawn(async move {
-        ifile.run().await;
+        let result = ifile.run().await;
+        info!("IFile finished: {:?}", result);
     });
-
-    XXX Here
-    // TODO: Arrange for view senders to be sent to the ifile.
+    tui.debug_recv("main after ifile spawn");
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
+    tui.debug_recv("main before tui run");
     tui.run(terminal).await;
 
     disable_raw_mode()?;
