@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use crossterm::event::EventStream;
 use futures::{FutureExt, StreamExt};
 use futures_timer::Delay;
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 use std::{
     io::{self, stdout},
     thread::{self, Thread},
@@ -272,7 +272,17 @@ impl Tui {
 
     fn handle_update_action(&mut self, update_action: UpdateAction) -> Result<()> {
         trace!("Update action: {:?}", update_action);
-        todo!()
+        match update_action {
+            UpdateAction::Truncated => {
+                self.content_state.view.reset();
+                self.filter_state.view.reset();
+            }
+            UpdateAction::Error { msg } => {
+                error!("Error: {}", msg);
+                // TODO: Put this in a dlg...
+            }
+        }
+        Ok(())
     }
 
     async fn handle_event(&mut self, event: &Event) -> io::Result<bool> {

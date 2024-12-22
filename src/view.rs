@@ -86,6 +86,15 @@ impl View {
         Ok(())
     }
 
+    pub fn reset(&mut self) {
+        self.stats.file_lines = 0;
+        self.stats.file_bytes = 0;
+        self.viewport.first_line = 0;
+        self.viewport.num_lines = 0;
+
+        self.cached_lines.clear();
+    }
+
     // Sync menthods... callable from the TUI render function.
     //
     pub fn get_line(&mut self, line_no: u32) -> Option<&String> {
