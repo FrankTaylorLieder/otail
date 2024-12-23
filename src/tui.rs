@@ -443,12 +443,9 @@ impl Tui {
     }
 
     fn compute_file_stats(&mut self) -> String {
-        let cell_renders = self.content_state.cell_renders + self.filter_state.cell_renders;
-        format!(
-            "{} Lines ({} cell renders)",
-            self.content_state.view.get_stats().file_lines,
-            cell_renders
-        )
+        let stats = self.content_state.view.get_stats();
+
+        format!("{}L / {}B", stats.file_lines, stats.file_bytes)
     }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {

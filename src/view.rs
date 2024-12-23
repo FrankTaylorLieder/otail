@@ -160,9 +160,12 @@ impl View {
                     if partial { "PARTIAL" } else { "COMPLETE" }
                 );
 
-                self.cached_lines
-                    .insert((line_no - self.viewport.first_line) as usize, line_content);
-
+                // self.cached_lines
+                //     .insert((line_no - self.viewport.first_line) as usize, line_content);
+                // TODO: This is probably wrong as there will be race conditions on the ViewPort
+                // change and async line pushes which means a line may come in that is outside the
+                // viewport. Or lines may come in out of order?
+                self.cached_lines.push_back(line_content);
                 None
             }
             IFResp::Stats {
