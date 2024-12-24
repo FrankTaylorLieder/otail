@@ -86,8 +86,8 @@ impl IFile {
         let mut pb = PathBuf::new();
         pb.push(path);
 
-        let (view_sender, view_receiver) = mpsc::channel(100);
-        let (reader_sender, reader_receiver) = mpsc::channel(100);
+        let (view_sender, view_receiver) = mpsc::channel(10000);
+        let (reader_sender, reader_receiver) = mpsc::channel(10000);
 
         IFile {
             path: pb,

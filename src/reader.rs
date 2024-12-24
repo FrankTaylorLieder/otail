@@ -35,10 +35,11 @@ impl Reader {
         trace!("Opened file: {:?}", path);
 
         // Start by spooling the file
-        trace!("Spooling file: {:?}", path);
+        trace!("TESTFST Spooling file: {:?}", path);
         let mut line = String::new();
         let mut line_bytes = 0;
         let mut partial = false;
+        let mut file_lines: u32 = 0;
         loop {
             if !partial {
                 line.clear();
@@ -48,7 +49,7 @@ impl Reader {
             // TODO: Remove unwrap
             let len = br.read_line(&mut line).unwrap();
 
-            trace!("Read line: {} / {}", len, line);
+            trace!("Read line: {} @{} / {}", len, file_lines, line);
 
             if len == 0 {
                 break;
@@ -57,6 +58,10 @@ impl Reader {
             line_bytes += len as u32;
             pos += len as u64;
             partial = !line.as_str().ends_with('\n');
+
+            if !partial {
+                file_lines += 1;
+            }
 
             // TODO: Also check for '\r\n'
             trace!("Reader sending line");
@@ -72,7 +77,7 @@ impl Reader {
         }
 
         // Now tail the file.
-        trace!("Starting tail: {:?}", path);
+        trace!("TESTFST Starting tail: {:?} {} lines", path, file_lines);
         let (mut watcher, mut rx) = async_watcher()?;
         watcher.watch(path.as_ref(), notify::RecursiveMode::Recursive);
 

@@ -131,8 +131,8 @@ pub struct Tui {
 
 impl Tui {
     pub fn new(path: String, view_ifreq_sender: IFReqSender) -> Self {
-        let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(1000);
-        let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(1000);
+        let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(10000);
+        let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(10000);
 
         let content_view = View::new(
             "content".to_owned(),

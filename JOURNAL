@@ -201,3 +201,16 @@ Messages:
   - Stats (lines, bytes)
   - Truncated
   - Error
+
+Commit: ce07e5d
+
+We have got the basic channel flow working, BUT it's far too slow. The reader is being blocked by the ifile.
+
+Without the channel, the reader is able to read the file (60k lines) in 0.6
+seconds. I suspect the forwarding stats to the UI is causing the issue.
+
+PROVED: with the reader/ifile, it look 0.8s to read the file.
+
+So... we need to drain the TUI queue at every read, rather than just taking one item off.
+
+TODO!
