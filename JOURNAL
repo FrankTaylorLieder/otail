@@ -211,6 +211,8 @@ seconds. I suspect the forwarding stats to the UI is causing the issue.
 
 PROVED: with the reader/ifile, it look 0.8s to read the file.
 
-So... we need to drain the TUI queue at every read, rather than just taking one item off.
+So... we need to drain the TUI queue at every read, rather than just taking one
+item off. Alternatively, we simply don't render on every event. This is simpler
+because we don't need to think about the semantics of a Error/Truncate mid
+stream drain.
 
-TODO!

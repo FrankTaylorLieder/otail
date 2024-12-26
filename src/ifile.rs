@@ -8,6 +8,7 @@ use tokio::fs::File;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::common::CHANNEL_BUFFER;
 use crate::reader::{Reader, ReaderUpdate, ReaderUpdateReceiver, ReaderUpdateSender};
 
 pub type IFReqSender = mpsc::Sender<IFReq>;
@@ -86,8 +87,8 @@ impl IFile {
         let mut pb = PathBuf::new();
         pb.push(path);
 
-        let (view_sender, view_receiver) = mpsc::channel(10000);
-        let (reader_sender, reader_receiver) = mpsc::channel(10000);
+        let (view_sender, view_receiver) = mpsc::channel(CHANNEL_BUFFER);
+        let (reader_sender, reader_receiver) = mpsc::channel(CHANNEL_BUFFER);
 
         IFile {
             path: pb,

@@ -31,6 +31,7 @@ use ratatui::{
 };
 
 use crate::{
+    common::{CHANNEL_BUFFER, MS_PER_FRAME},
     ifile::{IFReqSender, IFRespReceiver, IFRespSender},
     view::{UpdateAction, View, ViewPort},
 };
@@ -131,8 +132,8 @@ pub struct Tui {
 
 impl Tui {
     pub fn new(path: String, view_ifreq_sender: IFReqSender) -> Self {
-        let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(10000);
-        let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(10000);
+        let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
+        let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
 
         let content_view = View::new(
             "content".to_owned(),
@@ -208,18 +209,31 @@ impl Tui {
             })
             .await;
         let mut reader = EventStream::new();
-        let mut interval = tokio::time::interval(Duration::from_millis(10_000));
+        let mut interval = tokio::time::interval(Duration::from_millis(MS_PER_FRAME));
+
+        // Indicate if enough time has passed to render, or if something timely should render.
+        let mut can_render = true;
+
+        // Indicate if something needs to be rendered.
+        let mut dirty = true;
+
         while !should_quit {
-            terminal.draw(|frame| self.draw(frame))?;
+            if can_render && dirty {
+                terminal.draw(|frame| self.draw(frame))?;
+                can_render = false;
+                dirty = false;
+            }
 
             let mut timeout = interval.tick();
             let crossterm_event = reader.next().fuse();
             select! {
                 _ = timeout => {
-                    trace!("Run loop timeout... tick");
+                    can_render = true;
                 },
                 maybe_event = crossterm_event => {
                     trace!("Event: {:?}", maybe_event);
+                    dirty = true;
+                    can_render = true;
                     match maybe_event {
                         Some(Ok(e)) => {
                             should_quit = self.handle_event(&e).await?;
@@ -233,6 +247,7 @@ impl Tui {
                 },
                 content_resp = self.content_ifresp_recv.recv() => {
                     trace!("Content resp: {:?}", content_resp);
+                    dirty = true;
                     match content_resp {
                         None => {
                             debug!("Content IFResp closed... finishing");
@@ -248,6 +263,7 @@ impl Tui {
                 },
                 filter_resp = self.filter_ifresp_recv.recv() => {
                     trace!("Filter resp: {:?}", filter_resp);
+                    dirty = true;
                     match filter_resp {
                         None => {
                             debug!("Filter IFResp closed... finishing");
