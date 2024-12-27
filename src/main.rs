@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
 use log::{debug, info, trace};
+use rtail::panic::init_panic_handler;
 use rtail::tui::Tui;
 use rtail::{ifile::IFile, view::View};
 use tokio::sync::mpsc;
@@ -36,6 +37,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    init_panic_handler();
+
     flexi_logger::Logger::try_with_env()?
         .log_to_file(FileSpec::default().suffix("log").use_timestamp(false))
         .append()

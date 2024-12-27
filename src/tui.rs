@@ -36,32 +36,16 @@ use ratatui::{
 use crate::{
     common::{CHANNEL_BUFFER, MS_PER_FRAME},
     ifile::{IFReqSender, IFRespReceiver, IFRespSender},
-    view::{UpdateAction, View, ViewPort},
+    view::{LinesSlice, UpdateAction, View},
 };
-
-#[derive(Debug)]
-struct ListRange {
-    first: usize,
-    current: usize,
-    last: usize,
-}
 
 #[derive(Debug)]
 struct LazyState {
     view: View,
-    current: Option<usize>,
+
+    height_hint: usize,
 
     cell_renders: u32,
-}
-
-impl LazyState {
-    pub fn select(&mut self, position: Option<usize>) {
-        self.current = position;
-    }
-
-    pub fn selected(&self) -> Option<usize> {
-        self.current
-    }
 }
 
 #[derive(Debug)]
@@ -82,17 +66,20 @@ impl<'a> LazyList<'a> {
 
 impl<'a> StatefulWidget for LazyList<'a> {
     type State = LazyState;
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        // TODO: Make scrolling renders smooth.
         self.block.render(area, buf);
         let inner = self.block.inner_if_some(area);
 
         let height = inner.height;
         let width = inner.width;
 
-        let current = state.current.unwrap_or(0);
+        state.height_hint = height as usize;
+
+        let current = state.view.current();
 
         let mut lines = Vec::new();
-        for i in current..(current + (height as usize)) {
+        for i in state.view.range() {
             let s = state.view.get_line(i);
 
             let Some(s) = s else {
@@ -101,7 +88,8 @@ impl<'a> StatefulWidget for LazyList<'a> {
             };
 
             lines.push(Line::from(format!(
-                "{:>5} {l:.w$}",
+                "{}{:>5} {l:.w$}",
+                if i == current { ">" } else { " " },
                 i,
                 w = width as usize,
                 l = s
@@ -159,7 +147,7 @@ impl Tui {
 
             content_state: LazyState {
                 view: content_view,
-                current: None,
+                height_hint: 0,
                 cell_renders: 0,
             },
             content_scroll_state: ScrollbarState::new(0),
@@ -168,7 +156,7 @@ impl Tui {
             filter_scroll_state: ScrollbarState::new(0),
             filter_state: LazyState {
                 view: filter_view,
-                current: None,
+                height_hint: 0,
                 cell_renders: 0,
             },
             filter_tail: false,
@@ -186,20 +174,6 @@ impl Tui {
         self.content_state.view.init().await?;
         self.filter_state.view.init().await?;
 
-        self.content_state
-            .view
-            .set_viewport(ViewPort {
-                first_line: 0,
-                num_lines: 10,
-            })
-            .await;
-        self.filter_state
-            .view
-            .set_viewport(ViewPort {
-                first_line: 0,
-                num_lines: 10,
-            })
-            .await;
         let mut reader = EventStream::new();
         let mut interval = tokio::time::interval(Duration::from_millis(MS_PER_FRAME));
 
@@ -211,9 +185,20 @@ impl Tui {
 
         while !should_quit {
             if can_render && dirty {
+                trace!("Draw!");
                 terminal.draw(|frame| self.draw(frame))?;
                 can_render = false;
                 dirty = false;
+
+                self.content_state
+                    .view
+                    .set_height(self.content_state.height_hint)
+                    .await?;
+
+                self.filter_state
+                    .view
+                    .set_height(self.filter_state.height_hint)
+                    .await?;
             }
 
             let mut timeout = interval.tick();
@@ -298,18 +283,18 @@ impl Tui {
             if key.kind == event::KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
-                    KeyCode::Char('j') | KeyCode::Down => self.scroll(1),
-                    KeyCode::Char('k') | KeyCode::Up => self.scroll(-1),
+                    KeyCode::Char('j') | KeyCode::Down => self.scroll(1).await,
+                    KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await,
                     // TODO: Scroll by visible page size
-                    KeyCode::Char('d') => self.scroll(20),
-                    KeyCode::Char('u') => self.scroll(-20),
-                    KeyCode::Char('g') => self.top(),
-                    KeyCode::Char('G') => self.bottom(),
+                    KeyCode::Char('d') => self.scroll(20).await,
+                    KeyCode::Char('u') => self.scroll(-20).await,
+                    KeyCode::Char('g') => self.top().await,
+                    KeyCode::Char('G') => self.bottom().await,
 
-                    KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1),
-                    KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1),
+                    KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1).await,
+                    KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1).await,
 
-                    KeyCode::Char('t') => self.toggle_tail(),
+                    KeyCode::Char('t') => self.toggle_tail().await,
 
                     KeyCode::Tab => self.current_window = !self.current_window,
 
@@ -329,39 +314,44 @@ impl Tui {
         }
     }
 
-    fn place(&mut self, i: usize) {
+    async fn place(&mut self, i: usize) {
+        trace!("XXX Place: {}", i);
         let (state, scroll_state) = self.get_window_bits();
-        state.select(Some(i));
+        state.view.set_current(i).await;
         scroll_state.position(i);
     }
 
-    fn scroll(&mut self, delta: isize) {
+    async fn scroll(&mut self, delta: isize) {
         let (state, scroll_state) = self.get_window_bits();
-        let i = match state.selected() {
-            Some(i) => clamped_add(i, delta, 0, (state.view.get_stats().file_lines - 1)),
-            None => 0,
-        };
+        let i = clamped_add(
+            state.view.current(),
+            delta,
+            0,
+            (state.view.get_stats().file_lines - 1),
+        );
 
-        self.place(i);
+        self.place(i).await;
     }
 
-    fn top(&mut self) {
-        self.place(0);
+    async fn top(&mut self) {
+        self.place(0).await;
     }
 
-    fn bottom(&mut self) {
+    async fn bottom(&mut self) {
         self.place((self.content_state.view.get_stats().file_lines - 1) as usize)
+            .await
     }
 
-    fn resize(&mut self, delta: isize) {
+    async fn resize(&mut self, delta: isize) {
         let mut delta = delta;
+
         if !self.current_window {
             delta = -delta;
         }
         self.content_fill = clamped_add(self.content_fill, delta, 1, 9);
     }
 
-    fn toggle_tail(&mut self) {
+    async fn toggle_tail(&mut self) {
         if self.current_window {
             self.content_tail = !self.content_tail;
         } else {
@@ -408,7 +398,6 @@ impl Tui {
         frame.render_stateful_widget(content, file_area, &mut self.content_state);
         self.render_scrollbar(frame, file_area);
 
-        // frame.render_widget(Block::bordered().title("Controls"), controls_area);
         let filter_controls = Span::from(format!(
             " {} Tail",
             if self.filter_tail { "☑" } else { "☐" }

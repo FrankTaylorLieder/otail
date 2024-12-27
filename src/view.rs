@@ -12,8 +12,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::ifile::{IFReq, IFReqSender, IFResp, IFRespReceiver, IFRespSender};
 
-#[derive(Debug, Default)]
-pub struct ViewPort {
+#[derive(Debug, Default, Eq, PartialEq, Clone)]
+pub struct LinesSlice {
     pub first_line: usize,
     pub num_lines: usize,
 }
@@ -26,7 +26,7 @@ pub struct Stats {
 
 #[derive(Debug, Default)]
 struct LineCache {
-    viewport: ViewPort,
+    range: LinesSlice,
     lines: Vec<Option<String>>,
 }
 
@@ -34,6 +34,9 @@ struct LineCache {
 pub struct View {
     id: String,
     path: String,
+
+    viewport: LinesSlice,
+    current: usize,
 
     ifile_req_sender: IFReqSender,
     ifile_resp_sender: IFRespSender,
@@ -59,20 +62,20 @@ fn clamped_sub(a: usize, b: usize) -> usize {
     }
 }
 
-impl ViewPort {
+impl LinesSlice {
     pub fn range(&self) -> Range<usize> {
-        (self.first_line..(self.first_line + self.num_lines))
+        self.first_line..(self.first_line + self.num_lines)
     }
 }
 
 impl LineCache {
     // Set the viewport and report on this lines need to be fetched.
-    pub fn set_viewport(&mut self, viewport: ViewPort) -> Vec<usize> {
+    pub fn set_viewport(&mut self, viewport: LinesSlice) -> Vec<usize> {
         trace!("New viewport: {:?}", viewport);
-        let mut new_lines = vec![None; viewport.num_lines];
+        let new_lines = vec![None; viewport.num_lines];
 
-        let or = self.viewport.range();
-        let nr = self.viewport.range();
+        let or = self.range.range();
+        let nr = self.range.range();
 
         // TODO: Reinstate code to capture lines.
         // if or.start <= nr.end && nr.start <= or.start {
@@ -84,50 +87,57 @@ impl LineCache {
         //     }
         // }
 
+        let first_line = viewport.first_line;
+
         self.lines = new_lines;
-        self.viewport = viewport;
+        self.range = viewport;
 
         let missing_lines = self
             .lines
             .iter()
             .enumerate()
-            .filter_map(|(i, v)| if v.is_none() { Some(i) } else { None })
+            .filter_map(|(i, v)| {
+                if v.is_none() {
+                    Some(i + first_line)
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<_>>();
 
         trace!("Missing lines: {:?}", missing_lines);
         missing_lines
     }
 
-    pub fn get_viewport(&self) -> &ViewPort {
-        &self.viewport
+    pub fn get_viewport(&self) -> &LinesSlice {
+        &self.range
     }
 
     pub fn set_line(&mut self, line_no: usize, line: String) -> bool {
-        if !self.viewport.range().contains(&line_no) {
+        if !self.range.range().contains(&line_no) {
             trace!(
                 "set_line() outside viewport: {} not in {:?}",
                 line_no,
-                self.viewport
+                self.range
             );
             return false;
         }
 
-        trace!("Setting line: {}", line_no);
         self.lines
-            .insert(line_no - self.viewport.first_line, Some(line));
+            .insert(line_no - self.range.first_line, Some(line));
         true
     }
 
     pub fn get_line(&self, line_no: usize) -> Option<String> {
-        if !self.viewport.range().contains(&line_no) {
+        if !self.range.range().contains(&line_no) {
             warn!(
                 "Requested line outside the current ViewPort: line: {}, viewport: {:?}",
-                line_no, self.viewport
+                line_no, self.range
             );
             return None;
         }
 
-        self.lines[line_no - self.viewport.first_line].clone()
+        self.lines[line_no - self.range.first_line].clone()
     }
 }
 
@@ -141,6 +151,9 @@ impl View {
         View {
             id,
             path,
+
+            viewport: LinesSlice::default(),
+            current: 0,
 
             ifile_req_sender,
             ifile_resp_sender,
@@ -171,7 +184,7 @@ impl View {
         self.line_cache = LineCache::default();
     }
 
-    // Sync menthods... callable from the TUI render function.
+    // Sync methods... callable from the TUI render function.
     //
     pub fn get_line(&mut self, line_no: usize) -> Option<String> {
         self.line_cache.get_line(line_no)
@@ -179,6 +192,14 @@ impl View {
 
     pub fn get_stats(&self) -> Stats {
         self.stats.clone()
+    }
+
+    pub fn current(&self) -> usize {
+        self.current
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        self.viewport.range()
     }
 
     // Async methods... callable from the TUI event loop.
@@ -189,19 +210,100 @@ impl View {
         todo!()
     }
 
-    pub async fn set_viewport(&mut self, viewport: ViewPort) -> Result<()> {
-        let missing = self.line_cache.set_viewport(viewport);
+    pub async fn set_current(&mut self, line_no: usize) -> Result<()> {
+        trace!(
+            "XXX set current: {}, range: {:?}",
+            line_no,
+            self.viewport.range()
+        );
+        self.current = line_no;
+
+        // Whilst the current line is in the viewport, do not scroll.
+        // Only scroll to keep the current in the viewport.
+
+        if self.viewport.range().contains(&line_no) {
+            return Ok(());
+        }
+
+        let num_lines = self.viewport.num_lines;
+        if line_no < self.viewport.first_line {
+            trace!("Moving viewport up to keep the current line on screen");
+            return self
+                .set_viewport(LinesSlice {
+                    first_line: line_no,
+                    num_lines,
+                })
+                .await;
+        }
+
+        // Move the viewport so the current line is at the end. Be careful to avoid a negative
+        // first line.
+        if line_no < num_lines {
+            trace!("Moving to start to keep screen full");
+            return self
+                .set_viewport(LinesSlice {
+                    first_line: 0,
+                    num_lines,
+                })
+                .await;
+        }
+
+        trace!("Move viewport down to keep current line on screen");
+        self.set_viewport(LinesSlice {
+            first_line: line_no - num_lines + 1,
+            num_lines,
+        })
+        .await
+    }
+
+    pub async fn set_height(&mut self, height: usize) -> Result<()> {
+        // Change the height of the viewport, ensuring the current line is still on screen.
+        // TODO: For the filter pane we want to expand the top of the window, not the bottom
+
+        let old_height = self.viewport.num_lines;
+        let first_line = self.viewport.first_line;
+        let current = self.current;
+
+        if height >= old_height || current < first_line + height {
+            return self
+                .set_viewport(LinesSlice {
+                    first_line,
+                    num_lines: height,
+                })
+                .await;
+        }
+
+        self.set_viewport(LinesSlice {
+            first_line: current - height + 1,
+            num_lines: height,
+        })
+        .await
+    }
+
+    async fn set_viewport(&mut self, viewport: LinesSlice) -> Result<()> {
+        trace!(
+            "XXX Set viewport old: {:?} new: {:?}",
+            self.viewport,
+            viewport
+        );
+        if self.viewport == viewport {
+            return Ok(());
+        }
+
+        let missing = self.line_cache.set_viewport(viewport.clone());
+        self.viewport = viewport;
 
         // TODO: Cancel missing lines no longer needed.
 
         // Request the lines we don't have.
         for line_no in missing {
             trace!("Client {} sending line request {}", self.id, line_no);
-            // TODO: Fix unwrap
-            self.ifile_req_sender.try_send(IFReq::GetLine {
-                id: self.id.clone(),
-                line_no,
-            })?
+            self.ifile_req_sender
+                .send(IFReq::GetLine {
+                    id: self.id.clone(),
+                    line_no,
+                })
+                .await?
         }
         Ok(())
     }
@@ -221,7 +323,9 @@ impl View {
                     if partial { "PARTIAL" } else { "COMPLETE" }
                 );
 
-                self.line_cache.set_line(line_no, line_content);
+                if self.line_cache.set_line(line_no, line_content) {
+                    trace!("Set line {} for {}", line_no, self.id);
+                }
                 None
             }
             IFResp::Stats {

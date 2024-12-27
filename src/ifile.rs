@@ -107,7 +107,14 @@ impl IFile {
         let cs = cs.clone();
         let path = self.path.clone();
         tokio::spawn(async move {
-            Reader::run(path, cs).await;
+            match Reader::run(path, cs).await {
+                Err(err) => {
+                    error!("Reader failed: {:?}", err);
+                }
+                Ok(_) => {
+                    info!("Reader finished normally");
+                }
+            }
         });
     }
 
@@ -168,9 +175,9 @@ impl IFile {
 
                 let updated_line_no = self.file_lines;
                 if partial {
-                    self.lines[self.file_lines as usize] = SLine {
+                    self.lines[updated_line_no] = SLine {
                         content: line_content.clone(),
-                        line_no: self.file_lines,
+                        line_no: updated_line_no,
                         line_chars: line_content.len(),
                         line_bytes,
                         partial: true,
@@ -178,7 +185,7 @@ impl IFile {
                 } else {
                     self.lines.push(SLine {
                         content: line_content.clone(),
-                        line_no: self.file_lines,
+                        line_no: updated_line_no,
                         line_chars: line_content.len(),
                         line_bytes,
                         partial: false,
@@ -196,7 +203,11 @@ impl IFile {
                 );
 
                 for (id, client) in self.clients.iter_mut() {
-                    trace!("Sending update to client: {}", id);
+                    trace!(
+                        "Sending update to client: {} - line {}",
+                        id,
+                        updated_line_no,
+                    );
                     // TODO: Deal with unwrap
                     client
                         .channel
@@ -205,12 +216,12 @@ impl IFile {
                             file_bytes,
                         })
                         .await?;
-                    if (client.interested.remove(&updated_line_no)) {
+                    if client.interested.remove(&updated_line_no) {
                         trace!("Sending line to: {}", id);
                         client
                             .channel
                             .send(IFResp::Line {
-                                line_no: self.file_lines,
+                                line_no: updated_line_no,
                                 line_content: line_content.clone(),
                                 line_chars,
                                 line_bytes,
@@ -273,7 +284,7 @@ impl IFile {
                     }
                     Some(sl) => {
                         // TODO: Fetch the data from the file rather than locally stored data.
-                        trace!("Returning line: {}", sl.content);
+                        trace!("Returning line: {}", line_no);
                         client
                             .channel
                             .send(IFResp::Line {

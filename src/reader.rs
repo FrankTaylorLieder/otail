@@ -28,7 +28,7 @@ pub struct Reader {}
 
 impl Reader {
     pub async fn run(path: PathBuf, sender: ReaderUpdateSender) -> Result<()> {
-        let mut f = std::fs::File::open(&path).unwrap();
+        let f = std::fs::File::open(&path).unwrap();
         let mut br = BufReader::new(std::fs::File::open(&path).unwrap());
         let mut pos = 0;
 
@@ -73,13 +73,13 @@ impl Reader {
                     partial,
                     file_bytes: pos as usize,
                 })
-                .await;
+                .await?;
         }
 
         // Now tail the file.
         trace!("TESTFST Starting tail: {:?} {} lines", path, file_lines);
         let (mut watcher, mut rx) = async_watcher()?;
-        watcher.watch(path.as_ref(), notify::RecursiveMode::Recursive);
+        watcher.watch(path.as_ref(), notify::RecursiveMode::Recursive)?;
 
         while let Some(m) = rx.recv().await {
             match m {
@@ -92,7 +92,7 @@ impl Reader {
                         br = BufReader::new(std::fs::File::open(&path).unwrap());
                         pos = 0;
 
-                        sender.send(ReaderUpdate::Truncated).await;
+                        sender.send(ReaderUpdate::Truncated).await?;
 
                         continue;
                     }
@@ -104,7 +104,7 @@ impl Reader {
                             .send(ReaderUpdate::FileError {
                                 reason: "File removed".to_owned(),
                             })
-                            .await;
+                            .await?;
 
                         // TODO: Shut it all down
                         continue;
@@ -157,7 +157,7 @@ impl Reader {
                                 partial,
                                 file_bytes: pos as usize,
                             })
-                            .await;
+                            .await?;
                     }
                 }
                 Err(e) => {
@@ -173,10 +173,10 @@ impl Reader {
 }
 
 fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Result<Event>>)> {
-    let (tx, mut rx) = mpsc::channel(1);
+    let (tx, rx) = mpsc::channel(1);
 
     // TODO: Remove unwrap
-    let mut watcher = RecommendedWatcher::new(
+    let watcher = RecommendedWatcher::new(
         move |res| {
             // TODO: Remove unwrap
             let runtime = Runtime::new().unwrap();
