@@ -1,11 +1,14 @@
 #![allow(unused)]
 use anyhow::{bail, Result};
 use crossterm::event::EventStream;
+use fmtsize::{Conventional, FmtSize};
 use futures::{FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, info, trace};
+use num_format::{Locale, ToFormattedString};
 use std::{
     io::{self, stdout},
+    isize,
     thread::{self, Thread},
     time::Duration,
 };
@@ -38,25 +41,25 @@ use crate::{
 
 #[derive(Debug)]
 struct ListRange {
-    first: u32,
-    current: u32,
-    last: u32,
+    first: usize,
+    current: usize,
+    last: usize,
 }
 
 #[derive(Debug)]
 struct LazyState {
     view: View,
-    current: Option<u32>,
+    current: Option<usize>,
 
     cell_renders: u32,
 }
 
 impl LazyState {
-    pub fn select(&mut self, position: Option<u32>) {
+    pub fn select(&mut self, position: Option<usize>) {
         self.current = position;
     }
 
-    pub fn selected(&self) -> Option<u32> {
+    pub fn selected(&self) -> Option<usize> {
         self.current
     }
 }
@@ -89,7 +92,7 @@ impl<'a> StatefulWidget for LazyList<'a> {
         let current = state.current.unwrap_or(0);
 
         let mut lines = Vec::new();
-        for i in current..(current + height as u32) {
+        for i in current..(current + (height as usize)) {
             let s = state.view.get_line(i);
 
             let Some(s) = s else {
@@ -127,7 +130,7 @@ pub struct Tui {
     // true for content, false for filter
     current_window: bool,
     // Fill ratio for content pane... 1..9
-    content_fill: u32,
+    content_fill: usize,
 }
 
 impl Tui {
@@ -174,22 +177,11 @@ impl Tui {
             content_fill: 7,
         };
 
-        s.debug_recv("tui in new");
         s
-    }
-
-    pub fn debug_recv(&self, location: &str) {
-        trace!(
-            "XXX TUI ifresp recv: {} {}",
-            location,
-            self.content_ifresp_recv.is_closed()
-        );
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         let mut should_quit = false;
-
-        self.debug_recv("run");
 
         self.content_state.view.init().await?;
         self.filter_state.view.init().await?;
@@ -339,19 +331,14 @@ impl Tui {
 
     fn place(&mut self, i: usize) {
         let (state, scroll_state) = self.get_window_bits();
-        state.select(Some(i as u32));
+        state.select(Some(i));
         scroll_state.position(i);
     }
 
-    fn scroll(&mut self, delta: i32) {
+    fn scroll(&mut self, delta: isize) {
         let (state, scroll_state) = self.get_window_bits();
         let i = match state.selected() {
-            Some(i) => clamped_add(
-                i as u32,
-                delta,
-                0,
-                (state.view.get_stats().file_lines - 1) as u32,
-            ) as usize,
+            Some(i) => clamped_add(i, delta, 0, (state.view.get_stats().file_lines - 1)),
             None => 0,
         };
 
@@ -366,7 +353,7 @@ impl Tui {
         self.place((self.content_state.view.get_stats().file_lines - 1) as usize)
     }
 
-    fn resize(&mut self, delta: i32) {
+    fn resize(&mut self, delta: isize) {
         let mut delta = delta;
         if !self.current_window {
             delta = -delta;
@@ -461,7 +448,11 @@ impl Tui {
     fn compute_file_stats(&mut self) -> String {
         let stats = self.content_state.view.get_stats();
 
-        format!("{}L / {}B", stats.file_lines, stats.file_bytes)
+        format!(
+            "{} L / {}",
+            stats.file_lines.to_formatted_string(&Locale::en),
+            (stats.file_bytes as u64).fmt_size(Conventional)
+        )
     }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
@@ -479,13 +470,13 @@ impl Tui {
     }
 }
 
-fn clamped_add(a: u32, b: i32, min: u32, max: u32) -> u32 {
+fn clamped_add(a: usize, b: isize, min: usize, max: usize) -> usize {
     let v = a as i64 + b as i64;
     if v > max as i64 {
         max
     } else if v < min as i64 {
         min
     } else {
-        v as u32
+        v as usize
     }
 }

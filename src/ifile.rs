@@ -21,11 +21,11 @@ pub type IFRespReceiver = mpsc::Receiver<IFResp>;
 pub enum IFReq {
     GetLine {
         id: String,
-        line_no: u32, // 0-based
+        line_no: usize, // 0-based
     },
     CancelLine {
         id: String,
-        line_no: u32, // 0-based
+        line_no: usize, // 0-based
     },
     RegisterClient {
         id: String,
@@ -36,14 +36,14 @@ pub enum IFReq {
 #[derive(Debug)]
 pub enum IFResp {
     Stats {
-        file_lines: u32,
-        file_bytes: u32,
+        file_lines: usize,
+        file_bytes: usize,
     },
     Line {
-        line_no: u32,
+        line_no: usize,
         line_content: String,
-        line_chars: u32,
-        line_bytes: u32,
+        line_chars: usize,
+        line_bytes: usize,
         partial: bool,
     },
     Truncated,
@@ -55,9 +55,9 @@ pub enum IFResp {
 #[derive(Debug)]
 struct SLine {
     content: String,
-    line_no: u32,
-    line_chars: u32,
-    line_bytes: u32,
+    line_no: usize,
+    line_chars: usize,
+    line_bytes: usize,
     partial: bool,
 }
 
@@ -66,7 +66,7 @@ struct Client {
     id: String,
     channel: IFRespSender,
     tailing: bool,
-    interested: HashSet<u32>,
+    interested: HashSet<usize>,
 }
 
 #[derive(Debug)]
@@ -77,8 +77,8 @@ pub struct IFile {
     reader_sender: ReaderUpdateSender,
     path: PathBuf,
     lines: Vec<SLine>,
-    file_lines: u32,
-    file_bytes: u32,
+    file_lines: usize,
+    file_bytes: usize,
     clients: HashMap<String, Client>,
 }
 
@@ -164,14 +164,14 @@ impl IFile {
                 partial,
                 file_bytes,
             } => {
-                let line_chars = line_content.len() as u32;
+                let line_chars = line_content.len();
 
                 let updated_line_no = self.file_lines;
                 if partial {
                     self.lines[self.file_lines as usize] = SLine {
                         content: line_content.clone(),
                         line_no: self.file_lines,
-                        line_chars: line_content.len() as u32,
+                        line_chars: line_content.len(),
                         line_bytes,
                         partial: true,
                     }
@@ -179,7 +179,7 @@ impl IFile {
                     self.lines.push(SLine {
                         content: line_content.clone(),
                         line_no: self.file_lines,
-                        line_chars: line_content.len() as u32,
+                        line_chars: line_content.len(),
                         line_bytes,
                         partial: false,
                     });

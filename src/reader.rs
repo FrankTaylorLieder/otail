@@ -11,9 +11,9 @@ use tokio::sync::mpsc::{self, Receiver};
 pub enum ReaderUpdate {
     Line {
         line_content: String,
-        line_bytes: u32,
+        line_bytes: usize,
         partial: bool,
-        file_bytes: u32,
+        file_bytes: usize,
     },
     Truncated,
     FileError {
@@ -39,7 +39,7 @@ impl Reader {
         let mut line = String::new();
         let mut line_bytes = 0;
         let mut partial = false;
-        let mut file_lines: u32 = 0;
+        let mut file_lines: usize = 0;
         loop {
             if !partial {
                 line.clear();
@@ -55,7 +55,7 @@ impl Reader {
                 break;
             }
 
-            line_bytes += len as u32;
+            line_bytes += len;
             pos += len as u64;
             partial = !line.as_str().ends_with('\n');
 
@@ -71,7 +71,7 @@ impl Reader {
                     line_content: line.clone(),
                     line_bytes,
                     partial,
-                    file_bytes: pos as u32,
+                    file_bytes: pos as usize,
                 })
                 .await;
         }
@@ -137,7 +137,7 @@ impl Reader {
                             break;
                         }
 
-                        line_bytes += len as u32;
+                        line_bytes += len;
                         pos += len as u64;
 
                         // TODO: Also check for '\r\n'
@@ -155,7 +155,7 @@ impl Reader {
                                 line_content: line.clone(),
                                 line_bytes,
                                 partial,
-                                file_bytes: pos as u32,
+                                file_bytes: pos as usize,
                             })
                             .await;
                     }

@@ -49,19 +49,16 @@ async fn main() -> anyhow::Result<()> {
     let mut ifile = IFile::new(&args.path);
 
     let tui = Tui::new(args.path.clone(), ifile.get_view_sender());
-    tui.debug_recv("main after new");
 
     let ifh = tokio::spawn(async move {
         let result = ifile.run().await;
         info!("IFile finished: {:?}", result);
     });
-    tui.debug_recv("main after ifile spawn");
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    tui.debug_recv("main before tui run");
     tui.run(terminal).await;
 
     disable_raw_mode()?;

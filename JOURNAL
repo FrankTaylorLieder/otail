@@ -216,3 +216,9 @@ item off. Alternatively, we simply don't render on every event. This is simpler
 because we don't need to think about the semantics of a Error/Truncate mid
 stream drain.
 
+Selective rendering, based on an FPS interval timer solved the problem.
+
+Commit: be2c2df
+
+Build a better view line cache.
+

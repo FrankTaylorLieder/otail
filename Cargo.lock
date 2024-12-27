@@ -103,6 +103,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86fdf8605db99b54d3cd748a44c6d04df638eb5dafb219b135d0149bd0db01f6"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,6 +356,12 @@ dependencies = [
  "regex",
  "thiserror",
 ]
+
+[[package]]
+name = "fmtsize"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd649816640879b21274f00840a0c06a0d7e221ef628dc80ce4a896e9817133e"
 
 [[package]]
 name = "foldhash"
@@ -716,6 +728,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-format"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a652d9771a63711fd3c3deb670acfbe5c30a4072e664d7a3bf5a9e1056ac72c3"
+dependencies = [
+ "arrayvec",
+ "itoa",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -866,10 +888,12 @@ dependencies = [
  "crossterm",
  "env_logger",
  "flexi_logger",
+ "fmtsize",
  "futures",
  "futures-timer",
  "log",
  "notify",
+ "num-format",
  "ratatui",
  "tokio",
  "tokio-util",
