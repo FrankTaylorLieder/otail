@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused_imports, unused_variables)]
 use anyhow::{bail, Result};
 use crossterm::event::EventStream;
 use fmtsize::{Conventional, FmtSize};
@@ -66,7 +66,7 @@ impl<'a> LazyList<'a> {
 
 impl<'a> StatefulWidget for LazyList<'a> {
     type State = LazyState;
-    fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         // TODO: Make scrolling renders smooth.
         self.block.render(area, buf);
         let inner = self.block.inner_if_some(area);
@@ -211,7 +211,7 @@ impl Tui {
                     .await?;
             }
 
-            let mut timeout = interval.tick();
+            let timeout = interval.tick();
             let crossterm_event = reader.next().fuse();
             select! {
                 _ = timeout => {
@@ -243,7 +243,7 @@ impl Tui {
                         Some(cr) => {
                             let reply = self.content_state.view.handle_update(cr).await;
                             if let Some(update_action) = reply {
-                                self.handle_update_action(update_action);
+                                self.handle_update_action(update_action)?;
                             }
                         }
                     }
@@ -259,7 +259,7 @@ impl Tui {
                         Some(fr) => {
                             let reply = self.filter_state.view.handle_update(fr).await;
                             if let Some(update_action) = reply {
-                                self.handle_update_action(update_action);
+                                self.handle_update_action(update_action)?;
                             }
                         }
                     }
@@ -288,23 +288,24 @@ impl Tui {
         Ok(())
     }
 
-    async fn handle_event(&mut self, event: &Event) -> io::Result<bool> {
+    async fn handle_event(&mut self, event: &Event) -> Result<bool> {
         if let Event::Key(key) = event {
             if key.kind == event::KeyEventKind::Press {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
-                    KeyCode::Char('j') | KeyCode::Down => self.scroll(1).await,
-                    KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await,
-                    // TODO: Scroll by visible page size
-                    KeyCode::Char('d') => self.scroll(20).await,
-                    KeyCode::Char('u') => self.scroll(-20).await,
-                    KeyCode::Char('g') => self.top().await,
-                    KeyCode::Char('G') => self.bottom().await,
+                    KeyCode::Char('j') | KeyCode::Down => self.scroll(1).await?,
+                    KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await?,
+                    KeyCode::Char('d') => self.scroll(20).await?,
+                    KeyCode::Char('u') => self.scroll(-20).await?,
+                    KeyCode::Char(' ') => self.scroll_page(1).await?,
+                    KeyCode::Backspace => self.scroll_page(-1).await?,
+                    KeyCode::Char('g') => self.top().await?,
+                    KeyCode::Char('G') => self.bottom().await?,
 
                     KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1).await,
                     KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1).await,
 
-                    KeyCode::Char('t') => self.toggle_tail().await,
+                    KeyCode::Char('t') => self.toggle_tail().await?,
 
                     KeyCode::Tab => self.current_window = !self.current_window,
 
@@ -324,30 +325,41 @@ impl Tui {
         }
     }
 
-    async fn place(&mut self, i: usize) {
+    async fn place(&mut self, i: usize) -> Result<()> {
         trace!("XXX Place: {}", i);
         let (state, scroll_state) = self.get_window_bits();
-        state.view.set_current(i).await;
+        state.view.set_current(i).await?;
         scroll_state.position(i);
+
+        Ok(())
     }
 
-    async fn scroll(&mut self, delta: isize) {
+    async fn scroll(&mut self, delta: isize) -> Result<()> {
         let (state, scroll_state) = self.get_window_bits();
         let i = clamped_add(
             state.view.current(),
             delta,
             0,
-            (state.view.get_stats().file_lines - 1),
+            state.view.get_stats().file_lines - 1,
         );
 
-        self.place(i).await;
+        self.place(i).await
     }
 
-    async fn top(&mut self) {
-        self.place(0).await;
+    async fn scroll_page(&mut self, direction: isize) -> Result<()> {
+        let amount = if self.current_window {
+            self.content_state.height_hint
+        } else {
+            self.filter_state.height_hint
+        };
+        self.scroll(amount as isize * direction).await
     }
 
-    async fn bottom(&mut self) {
+    async fn top(&mut self) -> Result<()> {
+        self.place(0).await
+    }
+
+    async fn bottom(&mut self) -> Result<()> {
         self.place((self.content_state.view.get_stats().file_lines - 1) as usize)
             .await
     }
@@ -361,13 +373,13 @@ impl Tui {
         self.content_fill = clamped_add(self.content_fill, delta, 1, 9);
     }
 
-    async fn toggle_tail(&mut self) {
+    async fn toggle_tail(&mut self) -> Result<()> {
         if self.current_window {
             self.content_tail = !self.content_tail;
-            self.content_state.view.set_tail(self.content_tail).await;
+            self.content_state.view.set_tail(self.content_tail).await
         } else {
             self.filter_tail = !self.filter_tail;
-            self.filter_state.view.set_tail(self.filter_tail).await;
+            self.filter_state.view.set_tail(self.filter_tail).await
         }
     }
 
@@ -402,7 +414,7 @@ impl Tui {
 
         let widths = [Constraint::Length(5), Constraint::Fill(1)];
 
-        let mut content = LazyList::new().block(
+        let content = LazyList::new().block(
             Block::bordered()
                 .border_set(self.selected_border(self.current_window))
                 .title("Content"),
@@ -419,7 +431,7 @@ impl Tui {
             controls_area,
         );
 
-        let mut filter_content = LazyList::new().block(
+        let filter_content = LazyList::new().block(
             Block::bordered()
                 .border_set(self.selected_border(!self.current_window))
                 .title("Filtered"),

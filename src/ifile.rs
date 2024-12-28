@@ -83,6 +83,7 @@ pub struct IFile {
     reader_receiver: ReaderUpdateReceiver,
     reader_sender: ReaderUpdateSender,
     path: PathBuf,
+    // TODO: Remove storing lines... use file reads instead.
     lines: Vec<SLine>,
     file_lines: usize,
     file_bytes: usize,

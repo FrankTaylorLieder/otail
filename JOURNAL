@@ -222,3 +222,16 @@ Commit: be2c2df
 
 Build a better view line cache.
 
+Fixed up basic fetching, scrolling and resizing.
+
+Commit: 7a18ca5
+
+Tailing initial design:
+
+- Move to the end of the file.
+- Request any missing lines as normal.
+- Enable tailing with last line as the last known line.
+- ifile sends diff between last known line and current tail.
+- ifile sends all subsequent lines.
+
+Commit: 2a45576
