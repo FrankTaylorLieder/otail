@@ -72,20 +72,19 @@ impl LineCache {
     // Set the viewport and report on this lines need to be fetched.
     pub fn set_viewport(&mut self, viewport: LinesSlice) -> Vec<usize> {
         trace!("New viewport: {:?}", viewport);
-        let new_lines = vec![None; viewport.num_lines];
+        let mut new_lines = vec![None; viewport.num_lines];
 
         let or = self.range.range();
-        let nr = self.range.range();
+        let nr = viewport.range();
 
-        // TODO: Reinstate code to capture lines.
-        // if or.start <= nr.end && nr.start <= or.start {
-        //     let ofl = self.viewport.first_line;
-        //     let nfl = viewport.first_line;
-        //     for i in (max(or.start, nr.start)..min(or.end, nr.end)) {
-        //         // TODO: Can we avoid the clone here?
-        //         new_lines.insert(i - nfl, self.lines[i - ofl].clone());
-        //     }
-        // }
+        if or.start <= nr.end && nr.start <= or.end {
+            let ofl = self.range.first_line;
+            let nfl = viewport.first_line;
+            for i in max(or.start, nr.start)..min(or.end, nr.end) {
+                // TODO: Can we avoid the clone here? swap?
+                new_lines[i - nfl] = self.lines[i - ofl].clone();
+            }
+        }
 
         let first_line = viewport.first_line;
 
@@ -123,8 +122,7 @@ impl LineCache {
             return false;
         }
 
-        self.lines
-            .insert(line_no - self.range.first_line, Some(line));
+        self.lines[line_no - self.range.first_line] = Some(line);
         true
     }
 
@@ -137,7 +135,15 @@ impl LineCache {
             return None;
         }
 
-        self.lines[line_no - self.range.first_line].clone()
+        let s = self.lines[line_no - self.range.first_line].clone();
+        // trace!(
+        //     "XXX Getting {} {} = {:?}",
+        //     line_no,
+        //     line_no - self.range.first_line,
+        //     s
+        // );
+
+        s
     }
 }
 
@@ -211,11 +217,11 @@ impl View {
     }
 
     pub async fn set_current(&mut self, line_no: usize) -> Result<()> {
-        trace!(
-            "XXX set current: {}, range: {:?}",
-            line_no,
-            self.viewport.range()
-        );
+        // trace!(
+        //     "XXX set current: {}, range: {:?}",
+        //     line_no,
+        //     self.viewport.range()
+        // );
         self.current = line_no;
 
         // Whilst the current line is in the viewport, do not scroll.
@@ -281,11 +287,11 @@ impl View {
     }
 
     async fn set_viewport(&mut self, viewport: LinesSlice) -> Result<()> {
-        trace!(
-            "XXX Set viewport old: {:?} new: {:?}",
-            self.viewport,
-            viewport
-        );
+        // trace!(
+        //     "XXX Set viewport old: {:?} new: {:?}",
+        //     self.viewport,
+        //     viewport
+        // );
         if self.viewport == viewport {
             return Ok(());
         }

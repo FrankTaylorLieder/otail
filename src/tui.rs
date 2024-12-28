@@ -78,13 +78,19 @@ impl<'a> StatefulWidget for LazyList<'a> {
 
         let current = state.view.current();
 
-        let mut lines = Vec::new();
+        let mut lines = Vec::with_capacity(state.height_hint);
+        trace!("XXX Range: {:?}", state.view.range());
         for i in state.view.range() {
-            let s = state.view.get_line(i);
+            let maybe_s = state.view.get_line(i);
 
-            let Some(s) = s else {
-                trace!("Line {i} not yet available...");
-                break;
+            // let Some(s) = s else {
+            //     trace!("Line {i} not yet available...");
+            //     break;
+            // };
+            trace!("XXX View: {} = {:?}", i, maybe_s);
+            let s = match maybe_s {
+                Some(s) => s,
+                None => "...".to_owned(),
             };
 
             lines.push(Line::from(format!(
