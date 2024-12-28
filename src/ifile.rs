@@ -31,6 +31,13 @@ pub enum IFReq {
         id: String,
         client_sender: IFRespSender,
     },
+    EnableTailing {
+        id: String,
+        last_seen_line: usize,
+    },
+    DisableTailing {
+        id: String,
+    },
 }
 
 #[derive(Debug)]
@@ -216,7 +223,7 @@ impl IFile {
                             file_bytes,
                         })
                         .await?;
-                    if client.interested.remove(&updated_line_no) {
+                    if client.interested.remove(&updated_line_no) || client.tailing {
                         trace!("Sending line to: {}", id);
                         client
                             .channel
@@ -331,6 +338,48 @@ impl IFile {
                     .await?;
 
                 trace!("Finished register");
+                Ok(())
+            }
+            IFReq::EnableTailing { id, last_seen_line } => {
+                trace!("Enable tailing: {}", id);
+                let Some(client) = self.clients.get_mut(&id) else {
+                    warn!("Unknown client, ignoring request: {}", id);
+                    return Ok(());
+                };
+
+                client.tailing = true;
+                // Determine which lines the client will not know about.
+                for i in last_seen_line..self.file_lines {
+                    let sl = self.lines.get(i);
+                    let Some(l) = sl else {
+                        warn!("Unknown line whilst sending missing tailing lines: {}", i);
+                        continue;
+                    };
+
+                    trace!("Forwaring missing line: {}", i);
+                    client
+                        .channel
+                        .send(IFResp::Line {
+                            line_no: i,
+                            line_content: l.content.clone(),
+                            line_chars: l.line_chars,
+                            line_bytes: l.line_chars,
+                            partial: l.partial,
+                        })
+                        .await?;
+                }
+                Ok(())
+            }
+            IFReq::DisableTailing { id } => {
+                trace!("Disable tailing: {}", id);
+
+                let Some(client) = self.clients.get_mut(&id) else {
+                    warn!("Unknown client, ignoring request: {}", id);
+                    return Ok(());
+                };
+
+                client.tailing = false;
+
                 Ok(())
             }
         }

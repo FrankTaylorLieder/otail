@@ -76,11 +76,15 @@ impl<'a> StatefulWidget for LazyList<'a> {
 
         state.height_hint = height as usize;
 
+        let num_lines = state.view.get_stats().file_lines;
         let current = state.view.current();
 
         let mut lines = Vec::with_capacity(state.height_hint);
         trace!("XXX Range: {:?}", state.view.range());
         for i in state.view.range() {
+            if i >= num_lines {
+                break;
+            }
             let maybe_s = state.view.get_line(i);
 
             // let Some(s) = s else {
@@ -360,8 +364,10 @@ impl Tui {
     async fn toggle_tail(&mut self) {
         if self.current_window {
             self.content_tail = !self.content_tail;
+            self.content_state.view.set_tail(self.content_tail).await;
         } else {
             self.filter_tail = !self.filter_tail;
+            self.filter_state.view.set_tail(self.filter_tail).await;
         }
     }
 

@@ -112,8 +112,15 @@ impl LineCache {
         &self.range
     }
 
-    pub fn set_line(&mut self, line_no: usize, line: String) -> bool {
+    pub fn set_line(&mut self, line_no: usize, line: String, tailing: bool) -> bool {
         if !self.range.range().contains(&line_no) {
+            // Determine the next line after the current buffer if we were tailing.
+            let tail_line = self.range.first_line + self.range.num_lines;
+            if tailing && line_no == tail_line {
+                self.add_tail(line_no, line);
+                return true;
+            }
+
             trace!(
                 "set_line() outside viewport: {} not in {:?}",
                 line_no,
@@ -124,6 +131,13 @@ impl LineCache {
 
         self.lines[line_no - self.range.first_line] = Some(line);
         true
+    }
+
+    fn add_tail(&mut self, line_no: usize, line: String) {
+        trace!("Adding line whilst tailing: {}", line_no);
+        self.lines.remove(0);
+        self.range.first_line += 1;
+        self.lines.push(Some(line));
     }
 
     pub fn get_line(&self, line_no: usize) -> Option<String> {
@@ -210,10 +224,30 @@ impl View {
 
     // Async methods... callable from the TUI event loop.
     //
-    pub async fn set_tail(&mut self, tail: bool) {
+    pub async fn set_tail(&mut self, tail: bool) -> Result<()> {
         self.tailing = tail;
 
-        todo!()
+        if !tail {
+            self.ifile_req_sender
+                .send(IFReq::DisableTailing {
+                    id: self.id.clone(),
+                })
+                .await?;
+
+            return Ok(());
+        }
+
+        let last_line = clamped_sub(self.get_stats().file_lines, 1);
+        self.set_current(last_line).await?;
+
+        self.ifile_req_sender
+            .send(IFReq::EnableTailing {
+                id: self.id.clone(),
+                last_seen_line: last_line,
+            })
+            .await?;
+
+        Ok(())
     }
 
     pub async fn set_current(&mut self, line_no: usize) -> Result<()> {
@@ -329,8 +363,20 @@ impl View {
                     if partial { "PARTIAL" } else { "COMPLETE" }
                 );
 
-                if self.line_cache.set_line(line_no, line_content) {
+                if self
+                    .line_cache
+                    .set_line(line_no, line_content, self.tailing)
+                {
                     trace!("Set line {} for {}", line_no, self.id);
+                }
+
+                if self.tailing {
+                    if let Err(err) = self
+                        .set_current(clamped_sub(self.stats.file_lines, 1))
+                        .await
+                    {
+                        warn!("Failed to set current to last line during tail: {:?}", err);
+                    }
                 }
                 None
             }
