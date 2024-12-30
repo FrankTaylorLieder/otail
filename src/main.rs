@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
 use log::{debug, info, trace};
+use rtail::ffile::FFile;
 use rtail::panic::init_panic_handler;
 use rtail::tui::Tui;
 use rtail::{ifile::IFile, view::View};
@@ -50,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
     info!("rtail starting: {:?}", args);
 
     let mut ifile = IFile::new(&args.path);
+    let mut ffile = FFile::new("ff".to_owned(), &args.path, ifile.get_view_sender());
 
     let tui = Tui::new(args.path.clone(), ifile.get_view_sender());
 

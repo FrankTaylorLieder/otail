@@ -283,7 +283,7 @@ impl IFile {
                     return Ok(());
                 };
 
-                let sl = self.lines.get(line_no as usize);
+                let sl = self.lines.get(line_no);
                 match sl {
                     None => {
                         trace!("Registering interest in: {} / {:?}", id, line_no);
