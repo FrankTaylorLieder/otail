@@ -53,7 +53,11 @@ async fn main() -> anyhow::Result<()> {
     let mut ifile = IFile::new(&args.path);
     let mut ffile = FFile::new("ff".to_owned(), &args.path, ifile.get_view_sender());
 
-    let tui = Tui::new(args.path.clone(), ifile.get_view_sender());
+    let tui = Tui::new(
+        args.path.clone(),
+        ifile.get_view_sender(),
+        ffile.get_view_sender(),
+    );
 
     let ifh = tokio::spawn(async move {
         let result = ifile.run().await;

@@ -11,14 +11,14 @@ use tokio::sync::{mpsc, oneshot};
 use crate::common::CHANNEL_BUFFER;
 use crate::reader::{Reader, ReaderUpdate, ReaderUpdateReceiver, ReaderUpdateSender};
 
-pub type IFReqSender = mpsc::Sender<IFReq>;
-pub type IFReqReceiver = mpsc::Receiver<IFReq>;
+pub type FileReqSender<T> = mpsc::Sender<FileReq<T>>;
+pub type FileReqReceiver<T> = mpsc::Receiver<FileReq<T>>;
 
-pub type IFRespSender = mpsc::Sender<IFResp>;
-pub type IFRespReceiver = mpsc::Receiver<IFResp>;
+pub type FileRespSender<T> = mpsc::Sender<T>;
+pub type FileRespReceiver<T> = mpsc::Receiver<T>;
 
 #[derive(Debug)]
-pub enum IFReq {
+pub enum FileReq<T> {
     GetLine {
         id: String,
         line_no: usize, // 0-based
@@ -29,7 +29,7 @@ pub enum IFReq {
     },
     RegisterClient {
         id: String,
-        client_sender: IFRespSender,
+        client_sender: mpsc::Sender<T>,
     },
     EnableTailing {
         id: String,
@@ -41,7 +41,7 @@ pub enum IFReq {
 }
 
 #[derive(Debug)]
-pub enum IFResp {
+pub enum FileResp {
     Stats {
         file_lines: usize,
         file_bytes: usize,
@@ -53,10 +53,13 @@ pub enum IFResp {
         line_bytes: usize,
         partial: bool,
     },
+}
+
+#[derive(Debug)]
+pub enum IFResp {
+    ViewUpdate { update: FileResp },
     Truncated,
-    FileError {
-        reason: String,
-    },
+    FileError { reason: String },
 }
 
 #[derive(Debug)]
@@ -71,15 +74,15 @@ struct SLine {
 #[derive(Debug)]
 struct Client {
     id: String,
-    channel: IFRespSender,
+    channel: FileRespSender<IFResp>,
     tailing: bool,
     interested: HashSet<usize>,
 }
 
 #[derive(Debug)]
 pub struct IFile {
-    view_receiver: IFReqReceiver,
-    view_sender: IFReqSender,
+    view_receiver: FileReqReceiver<IFResp>,
+    view_sender: FileReqSender<IFResp>,
     reader_receiver: ReaderUpdateReceiver,
     reader_sender: ReaderUpdateSender,
     path: PathBuf,
@@ -126,7 +129,7 @@ impl IFile {
         });
     }
 
-    pub fn get_view_sender(&self) -> IFReqSender {
+    pub fn get_view_sender(&self) -> FileReqSender<IFResp> {
         self.view_sender.clone()
     }
 
@@ -219,21 +222,25 @@ impl IFile {
                     // TODO: Deal with unwrap
                     client
                         .channel
-                        .send(IFResp::Stats {
-                            file_lines: self.file_lines,
-                            file_bytes,
+                        .send(IFResp::ViewUpdate {
+                            update: FileResp::Stats {
+                                file_lines: self.file_lines,
+                                file_bytes,
+                            },
                         })
                         .await?;
                     if client.interested.remove(&updated_line_no) || client.tailing {
                         trace!("Sending line to: {}", id);
                         client
                             .channel
-                            .send(IFResp::Line {
-                                line_no: updated_line_no,
-                                line_content: line_content.clone(),
-                                line_chars,
-                                line_bytes,
-                                partial,
+                            .send(IFResp::ViewUpdate {
+                                update: FileResp::Line {
+                                    line_no: updated_line_no,
+                                    line_content: line_content.clone(),
+                                    line_chars,
+                                    line_bytes,
+                                    partial,
+                                },
                             })
                             .await?;
                     }
@@ -274,9 +281,9 @@ impl IFile {
         }
     }
 
-    async fn handle_client_command(&mut self, cmd: IFReq) -> Result<()> {
+    async fn handle_client_command(&mut self, cmd: FileReq<IFResp>) -> Result<()> {
         match cmd {
-            IFReq::GetLine { id, line_no } => {
+            FileReq::GetLine { id, line_no } => {
                 trace!("Client {} requested line {}", id, line_no);
                 let Some(client) = self.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
@@ -295,19 +302,21 @@ impl IFile {
                         trace!("Returning line: {}", line_no);
                         client
                             .channel
-                            .send(IFResp::Line {
-                                line_no,
-                                line_content: sl.content.clone(),
-                                line_chars: sl.line_chars,
-                                line_bytes: sl.line_bytes,
-                                partial: sl.partial,
+                            .send(IFResp::ViewUpdate {
+                                update: FileResp::Line {
+                                    line_no,
+                                    line_content: sl.content.clone(),
+                                    line_chars: sl.line_chars,
+                                    line_bytes: sl.line_bytes,
+                                    partial: sl.partial,
+                                },
                             })
                             .await?;
                         Ok(())
                     }
                 }
             }
-            IFReq::CancelLine { id, line_no } => {
+            FileReq::CancelLine { id, line_no } => {
                 trace!("Cancel line: {} / {:?}", id, line_no);
                 let Some(client) = self.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
@@ -319,7 +328,7 @@ impl IFile {
                 }
                 Ok(())
             }
-            IFReq::RegisterClient { id, client_sender } => {
+            FileReq::RegisterClient { id, client_sender } => {
                 trace!("Registering client: {}", id);
                 self.clients.insert(
                     id.clone(),
@@ -332,16 +341,18 @@ impl IFile {
                 );
 
                 client_sender
-                    .send(IFResp::Stats {
-                        file_lines: 0,
-                        file_bytes: 0,
+                    .send(IFResp::ViewUpdate {
+                        update: FileResp::Stats {
+                            file_lines: 0,
+                            file_bytes: 0,
+                        },
                     })
                     .await?;
 
                 trace!("Finished register");
                 Ok(())
             }
-            IFReq::EnableTailing { id, last_seen_line } => {
+            FileReq::EnableTailing { id, last_seen_line } => {
                 trace!("Enable tailing: {}", id);
                 let Some(client) = self.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
@@ -360,18 +371,20 @@ impl IFile {
                     trace!("Forwaring missing line: {}", i);
                     client
                         .channel
-                        .send(IFResp::Line {
-                            line_no: i,
-                            line_content: l.content.clone(),
-                            line_chars: l.line_chars,
-                            line_bytes: l.line_chars,
-                            partial: l.partial,
+                        .send(IFResp::ViewUpdate {
+                            update: FileResp::Line {
+                                line_no: i,
+                                line_content: l.content.clone(),
+                                line_chars: l.line_chars,
+                                line_bytes: l.line_chars,
+                                partial: l.partial,
+                            },
                         })
                         .await?;
                 }
                 Ok(())
             }
-            IFReq::DisableTailing { id } => {
+            FileReq::DisableTailing { id } => {
                 trace!("Disable tailing: {}", id);
 
                 let Some(client) = self.clients.get_mut(&id) else {

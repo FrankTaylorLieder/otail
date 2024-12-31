@@ -9,6 +9,7 @@ use num_format::{Locale, ToFormattedString};
 use std::{
     io::{self, stdout},
     isize,
+    marker::PhantomData,
     thread::{self, Thread},
     time::Duration,
 };
@@ -35,13 +36,14 @@ use ratatui::{
 
 use crate::{
     common::{CHANNEL_BUFFER, MS_PER_FRAME},
-    ifile::{IFReqSender, IFRespReceiver, IFRespSender},
+    ffile::{FFResp, FFRespReceiver},
+    ifile::{FileReqSender, FileRespReceiver, IFResp},
     view::{LinesSlice, UpdateAction, View},
 };
 
 #[derive(Debug)]
-struct LazyState {
-    view: View,
+struct LazyState<T> {
+    view: View<T>,
 
     height_hint: usize,
 
@@ -49,13 +51,17 @@ struct LazyState {
 }
 
 #[derive(Debug)]
-struct LazyList<'a> {
+struct LazyList<'a, T> {
     block: Option<Block<'a>>,
+    _phantom: PhantomData<T>,
 }
 
-impl<'a> LazyList<'a> {
+impl<'a, T> LazyList<'a, T> {
     pub fn new() -> Self {
-        Self { block: None }
+        Self {
+            block: None,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn block(mut self, block: Block<'a>) -> Self {
@@ -64,8 +70,8 @@ impl<'a> LazyList<'a> {
     }
 }
 
-impl<'a> StatefulWidget for LazyList<'a> {
-    type State = LazyState;
+impl<'a, T: std::marker::Send + 'static> StatefulWidget for LazyList<'a, T> {
+    type State = LazyState<T>;
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         // TODO: Make scrolling renders smooth.
         self.block.render(area, buf);
@@ -114,14 +120,14 @@ impl<'a> StatefulWidget for LazyList<'a> {
 pub struct Tui {
     path: String,
 
-    content_ifresp_recv: IFRespReceiver,
-    filter_ifresp_recv: IFRespReceiver,
+    content_ifresp_recv: FileRespReceiver<IFResp>,
+    filter_ffresp_recv: FFRespReceiver,
 
-    content_state: LazyState,
+    content_state: LazyState<IFResp>,
     content_scroll_state: ScrollbarState,
     content_tail: bool,
 
-    filter_state: LazyState,
+    filter_state: LazyState<FFResp>,
     filter_scroll_state: ScrollbarState,
     filter_tail: bool,
 
@@ -132,20 +138,24 @@ pub struct Tui {
 }
 
 impl Tui {
-    pub fn new(path: String, view_ifreq_sender: IFReqSender) -> Self {
+    pub fn new(
+        path: String,
+        ifreq_sender: FileReqSender<IFResp>,
+        ffreq_sender: FileReqSender<FFResp>,
+    ) -> Self {
         let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
         let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
 
         let content_view = View::new(
             "content".to_owned(),
             path.clone(),
-            view_ifreq_sender.clone(),
+            ifreq_sender.clone(),
             content_ifresp_sender,
         );
         let filter_view = View::new(
             "filter".to_owned(),
             path.clone(),
-            view_ifreq_sender.clone(),
+            ffreq_sender.clone(),
             filter_ifresp_sender,
         );
 
@@ -153,7 +163,7 @@ impl Tui {
             path,
 
             content_ifresp_recv,
-            filter_ifresp_recv,
+            filter_ffresp_recv: filter_ifresp_recv,
 
             content_state: LazyState {
                 view: content_view,
@@ -241,14 +251,26 @@ impl Tui {
                             break;
                         }
                         Some(cr) => {
-                            let reply = self.content_state.view.handle_update(cr).await;
-                            if let Some(update_action) = reply {
-                                self.handle_update_action(update_action)?;
+                            match cr {
+                                IFResp::ViewUpdate { update } => {
+                                    self.content_state.view.handle_update(update).await;
+                                }
+                                IFResp::Truncated => {
+                                    debug!("{}: File truncated", self.path);
+
+                                    self.content_state.view.reset();
+                                    self.filter_state.view.reset();
+                                }
+                                IFResp::FileError { reason } => {
+                                    error!("{}: File error: {reason}", self.path);
+
+                                    // TODO: Put this in a dlg...
+                                }
                             }
                         }
                     }
                 },
-                filter_resp = self.filter_ifresp_recv.recv() => {
+                filter_resp = self.filter_ffresp_recv.recv() => {
                     trace!("Filter resp: {:?}", filter_resp);
                     dirty = true;
                     match filter_resp {
@@ -257,9 +279,13 @@ impl Tui {
                             break;
                         }
                         Some(fr) => {
-                            let reply = self.filter_state.view.handle_update(fr).await;
-                            if let Some(update_action) = reply {
-                                self.handle_update_action(update_action)?;
+                            match fr {
+                                FFResp::ViewUpdate { update } => {
+                                    self.filter_state.view.handle_update(update).await;
+                                }
+                                FFResp::Clear => {
+                                    self.filter_state.view.reset();
+                                }
                             }
                         }
                     }
@@ -270,21 +296,6 @@ impl Tui {
         disable_raw_mode()?;
         stdout().execute(LeaveAlternateScreen)?;
 
-        Ok(())
-    }
-
-    fn handle_update_action(&mut self, update_action: UpdateAction) -> Result<()> {
-        trace!("Update action: {:?}", update_action);
-        match update_action {
-            UpdateAction::Truncated => {
-                self.content_state.view.reset();
-                self.filter_state.view.reset();
-            }
-            UpdateAction::Error { msg } => {
-                error!("Error: {}", msg);
-                // TODO: Put this in a dlg...
-            }
-        }
         Ok(())
     }
 
@@ -317,31 +328,35 @@ impl Tui {
         Ok(false)
     }
 
-    fn get_window_bits(&mut self) -> (&mut LazyState, &mut ScrollbarState) {
-        if self.current_window {
-            (&mut self.content_state, &mut self.content_scroll_state)
-        } else {
-            (&mut self.filter_state, &mut self.filter_scroll_state)
-        }
-    }
-
     async fn place(&mut self, i: usize) -> Result<()> {
         trace!("XXX Place: {}", i);
-        let (state, scroll_state) = self.get_window_bits();
-        state.view.set_current(i).await?;
-        scroll_state.position(i);
+        if self.current_window {
+            self.content_state.view.set_current(i).await?;
+            let _ = self.content_scroll_state.position(i);
+        } else {
+            self.filter_state.view.set_current(i).await?;
+            let _ = self.content_scroll_state.position(i);
+        }
 
         Ok(())
     }
 
     async fn scroll(&mut self, delta: isize) -> Result<()> {
-        let (state, scroll_state) = self.get_window_bits();
-        let i = clamped_add(
-            state.view.current(),
-            delta,
-            0,
-            state.view.get_stats().file_lines - 1,
-        );
+        let i = if self.current_window {
+            clamped_add(
+                self.content_state.view.current(),
+                delta,
+                0,
+                self.content_state.view.get_stats().file_lines - 1,
+            )
+        } else {
+            clamped_add(
+                self.filter_state.view.current(),
+                delta,
+                0,
+                self.filter_state.view.get_stats().file_lines - 1,
+            )
+        };
 
         self.place(i).await
     }

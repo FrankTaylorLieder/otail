@@ -10,7 +10,7 @@ use ratatui::symbols::line;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::ifile::{IFReq, IFReqSender, IFResp, IFRespReceiver, IFRespSender};
+use crate::ifile::{FileReq, FileReqSender, FileResp, FileRespSender, IFResp};
 
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
 pub struct LinesSlice {
@@ -31,15 +31,15 @@ struct LineCache {
 }
 
 #[derive(Debug)]
-pub struct View {
+pub struct View<T> {
     id: String,
     path: String,
 
     viewport: LinesSlice,
     current: usize,
 
-    ifile_req_sender: IFReqSender,
-    ifile_resp_sender: IFRespSender,
+    ifile_req_sender: FileReqSender<T>,
+    ifile_resp_sender: FileRespSender<T>,
 
     stats: Stats,
 
@@ -161,12 +161,12 @@ impl LineCache {
     }
 }
 
-impl View {
+impl<T: std::marker::Send + 'static> View<T> {
     pub fn new(
         id: String,
         path: String,
-        ifile_req_sender: IFReqSender,
-        ifile_resp_sender: IFRespSender,
+        ifile_req_sender: FileReqSender<T>,
+        ifile_resp_sender: FileRespSender<T>,
     ) -> Self {
         View {
             id,
@@ -189,7 +189,7 @@ impl View {
     pub async fn init(&self) -> Result<()> {
         let r = self
             .ifile_req_sender
-            .send(IFReq::RegisterClient {
+            .send(FileReq::RegisterClient {
                 id: self.id.clone(),
                 client_sender: self.ifile_resp_sender.clone(),
             })
@@ -229,7 +229,7 @@ impl View {
 
         if !tail {
             self.ifile_req_sender
-                .send(IFReq::DisableTailing {
+                .send(FileReq::DisableTailing {
                     id: self.id.clone(),
                 })
                 .await?;
@@ -241,7 +241,7 @@ impl View {
         self.set_current(last_line).await?;
 
         self.ifile_req_sender
-            .send(IFReq::EnableTailing {
+            .send(FileReq::EnableTailing {
                 id: self.id.clone(),
                 last_seen_line: last_line,
             })
@@ -339,7 +339,7 @@ impl View {
         for line_no in missing {
             trace!("Client {} sending line request {}", self.id, line_no);
             self.ifile_req_sender
-                .send(IFReq::GetLine {
+                .send(FileReq::GetLine {
                     id: self.id.clone(),
                     line_no,
                 })
@@ -348,9 +348,9 @@ impl View {
         Ok(())
     }
 
-    pub async fn handle_update(&mut self, update: IFResp) -> Option<UpdateAction> {
+    pub async fn handle_update(&mut self, update: FileResp) {
         match update {
-            IFResp::Line {
+            FileResp::Line {
                 line_no,
                 line_content,
                 line_chars,
@@ -378,29 +378,13 @@ impl View {
                         warn!("Failed to set current to last line during tail: {:?}", err);
                     }
                 }
-                None
             }
-            IFResp::Stats {
+            FileResp::Stats {
                 file_lines,
                 file_bytes,
             } => {
                 self.stats.file_lines = file_lines;
                 self.stats.file_bytes = file_bytes;
-
-                None
-            }
-            IFResp::Truncated => {
-                debug!("{}: File truncated", self.id);
-
-                self.stats = Stats::default();
-                self.line_cache = LineCache::default();
-
-                Some(UpdateAction::Truncated)
-            }
-            IFResp::FileError { reason } => {
-                error!("{}: File error: {reason}", self.id);
-
-                Some(UpdateAction::Error { msg: reason })
             }
         }
     }
