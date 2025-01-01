@@ -36,7 +36,7 @@ use ratatui::{
 
 use crate::{
     common::{CHANNEL_BUFFER, MS_PER_FRAME},
-    ffile::{FFResp, FFRespReceiver},
+    ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterSpec},
     ifile::{FileReqSender, FileRespReceiver, IFResp},
     view::{LinesSlice, UpdateAction, View},
 };
@@ -123,6 +123,8 @@ pub struct Tui {
     content_ifresp_recv: FileRespReceiver<IFResp>,
     filter_ffresp_recv: FFRespReceiver,
 
+    ff_sender: FFReqSender,
+
     content_state: LazyState<IFResp>,
     content_scroll_state: ScrollbarState,
     content_tail: bool,
@@ -142,6 +144,7 @@ impl Tui {
         path: String,
         ifreq_sender: FileReqSender<IFResp>,
         ffreq_sender: FileReqSender<FFResp>,
+        ff_sender: FFReqSender,
     ) -> Self {
         let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
         let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
@@ -164,6 +167,8 @@ impl Tui {
 
             content_ifresp_recv,
             filter_ffresp_recv: filter_ifresp_recv,
+
+            ff_sender,
 
             content_state: LazyState {
                 view: content_view,
@@ -193,6 +198,18 @@ impl Tui {
 
         self.content_state.view.init().await?;
         self.filter_state.view.init().await?;
+
+        // TODO: Remove this...
+        trace!("XXX Setting filter");
+        self.ff_sender
+            .send(FFReq::SetFilter {
+                filter_spec: Some(FilterSpec {
+                    filter: "0$".to_owned(),
+                    mode: crate::ffile::FilterMode::Regex,
+                }),
+                response: None,
+            })
+            .await?;
 
         let mut reader = EventStream::new();
         let mut interval = tokio::time::interval(Duration::from_millis(MS_PER_FRAME));

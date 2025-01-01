@@ -49,8 +49,6 @@ pub enum FileResp {
     Line {
         line_no: usize,
         line_content: String,
-        line_chars: usize,
-        line_bytes: usize,
         partial: bool,
     },
 }
@@ -237,8 +235,6 @@ impl IFile {
                                 update: FileResp::Line {
                                     line_no: updated_line_no,
                                     line_content: line_content.clone(),
-                                    line_chars,
-                                    line_bytes,
                                     partial,
                                 },
                             })
@@ -306,8 +302,6 @@ impl IFile {
                                 update: FileResp::Line {
                                     line_no,
                                     line_content: sl.content.clone(),
-                                    line_chars: sl.line_chars,
-                                    line_bytes: sl.line_bytes,
                                     partial: sl.partial,
                                 },
                             })
@@ -375,8 +369,6 @@ impl IFile {
                             update: FileResp::Line {
                                 line_no: i,
                                 line_content: l.content.clone(),
-                                line_chars: l.line_chars,
-                                line_bytes: l.line_chars,
                                 partial: l.partial,
                             },
                         })

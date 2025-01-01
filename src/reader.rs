@@ -68,7 +68,7 @@ impl Reader {
             sender
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.
-                    line_content: line.clone(),
+                    line_content: line.trim_end().to_owned(),
                     line_bytes,
                     partial,
                     file_bytes: pos as usize,

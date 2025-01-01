@@ -353,8 +353,6 @@ impl<T: std::marker::Send + 'static> View<T> {
             FileResp::Line {
                 line_no,
                 line_content,
-                line_chars,
-                line_bytes,
                 partial,
             } => {
                 debug!(

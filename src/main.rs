@@ -57,11 +57,17 @@ async fn main() -> anyhow::Result<()> {
         args.path.clone(),
         ifile.get_view_sender(),
         ffile.get_view_sender(),
+        ffile.get_ff_sender(),
     );
 
     let ifh = tokio::spawn(async move {
         let result = ifile.run().await;
         info!("IFile finished: {:?}", result);
+    });
+
+    let ffh = tokio::spawn(async move {
+        let result = ffile.run().await;
+        info!("FFile finished: {:?}", result);
     });
 
     enable_raw_mode()?;
@@ -73,8 +79,9 @@ async fn main() -> anyhow::Result<()> {
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
 
-    debug!("Waiting for ifile to finish");
-    //ifh.await;
+    // debug!("Waiting for ifile and ffile to finish");
+    // ifh.await;
+    // ffh.await;
 
     Ok(())
 }
