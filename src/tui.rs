@@ -86,7 +86,6 @@ impl<'a, T: std::marker::Send + 'static> StatefulWidget for LazyList<'a, T> {
         let current = state.view.current();
 
         let mut lines = Vec::with_capacity(state.height_hint);
-        trace!("XXX Range: {:?}", state.view.range());
         for i in state.view.range() {
             if i >= num_lines {
                 break;
@@ -97,7 +96,6 @@ impl<'a, T: std::marker::Send + 'static> StatefulWidget for LazyList<'a, T> {
             //     trace!("Line {i} not yet available...");
             //     break;
             // };
-            trace!("XXX View: {} = {:?}", i, maybe_s);
             let s = match maybe_s {
                 Some(s) => s,
                 None => "...".to_owned(),
@@ -346,7 +344,6 @@ impl Tui {
     }
 
     async fn place(&mut self, i: usize) -> Result<()> {
-        trace!("XXX Place: {}", i);
         if self.current_window {
             self.content_state.view.set_current(i).await?;
             let _ = self.content_scroll_state.position(i);
@@ -420,7 +417,7 @@ impl Tui {
             Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
         let [file_area, controls_area, filter_area] = Layout::vertical([
             Constraint::Fill(self.content_fill as u16),
-            Constraint::Length(3),
+            Constraint::Length(1),
             Constraint::Fill(10 - self.content_fill as u16),
         ])
         .areas(main_area);
@@ -454,14 +451,24 @@ impl Tui {
         frame.render_stateful_widget(content, file_area, &mut self.content_state);
         self.render_scrollbar(frame, file_area);
 
+        let filter_control_filter = Span::from(format!("Filter: {}", "TODO"));
         let filter_controls = Span::from(format!(
             " {} Tail",
             if self.filter_tail { "☑" } else { "☐" }
         ));
-        frame.render_widget(
-            Paragraph::new(filter_controls).block(Block::bordered().title("Controls")),
-            controls_area,
-        );
+        let filter_control_stats = Line::from(self.compute_filter_stats())
+            .reversed()
+            .alignment(Alignment::Right);
+        let filter_control_layout = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Length(10),
+            Constraint::Length(30),
+        ]);
+        let [filter_control_filter_area, filter_control_tail_area, filter_control_tail_matches] =
+            filter_control_layout.areas(controls_area);
+        frame.render_widget(filter_control_filter, filter_control_filter_area);
+        frame.render_widget(filter_controls, filter_control_tail_area);
+        frame.render_widget(filter_control_stats, filter_control_tail_matches);
 
         let filter_content = LazyList::new().block(
             Block::bordered()
@@ -497,6 +504,15 @@ impl Tui {
             "{} L / {}",
             stats.file_lines.to_formatted_string(&Locale::en),
             (stats.file_bytes as u64).fmt_size(Conventional)
+        )
+    }
+
+    fn compute_filter_stats(&mut self) -> String {
+        let stats = self.filter_state.view.get_stats();
+
+        format!(
+            "{} matches",
+            stats.file_lines.to_formatted_string(&Locale::en)
         )
     }
 

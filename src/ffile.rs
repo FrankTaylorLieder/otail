@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use tokio::sync::oneshot;
 
 use anyhow::{anyhow, Result};
 use log::{debug, trace, warn};
 use regex::Regex;
 use tokio::select;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use crate::common::{CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE};
 use crate::ifile::{
@@ -14,7 +15,6 @@ use crate::ifile::{
 
 pub type FFRespSender = mpsc::Sender<FFResp>;
 pub type FFRespReceiver = mpsc::Receiver<FFResp>;
-
 pub type FFReqSender = mpsc::Sender<FFReq>;
 pub type FFReqReceiver = mpsc::Receiver<FFReq>;
 
@@ -26,7 +26,6 @@ pub enum FFResp {
     ViewUpdate { update: FileResp },
     Clear,
 }
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum FilterMode {
     SimpleCaseSensitive,
@@ -70,7 +69,9 @@ struct FilterState {
     filter_re: Regex,
     matches: Vec<LineNo>,
     num_matches: usize,
-    next_line: LineNo,
+    line_to_match: HashMap<usize, usize>,
+    next_line_expected: LineNo,
+    next_line_to_request: LineNo,
 }
 
 pub struct FFile {
@@ -103,7 +104,6 @@ impl FFile {
         let (view_req_sender, view_req_receiver) = mpsc::channel(CHANNEL_BUFFER);
         let (ff_req_sender, ff_req_receiver) = mpsc::channel(CHANNEL_BUFFER);
         let (if_resp_sender, if_resp_receiver) = mpsc::channel(CHANNEL_BUFFER);
-
         FFile {
             id,
             path: pb,
@@ -223,8 +223,10 @@ impl FFile {
                     filter_spec,
                     filter_re,
                     matches: Vec::new(),
+                    line_to_match: HashMap::new(),
                     num_matches: 0,
-                    next_line: 0,
+                    next_line_expected: 0,
+                    next_line_to_request: 0,
                 });
 
                 for (name, client) in self.clients.iter() {
@@ -240,23 +242,26 @@ impl FFile {
 
     async fn handle_client_command(&mut self, cmd: FileReq<FFResp>) -> Result<()> {
         match cmd {
-            FileReq::GetLine { id, line_no } => {
-                trace!("Client {} requested match {}", id, line_no);
+            FileReq::GetLine {
+                id,
+                line_no: match_no,
+            } => {
+                trace!("Client {} requested match {}", id, match_no);
                 let Some(client) = self.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
                     return Ok(());
                 };
 
-                let Some(filter_state) = &self.filter_state else {
+                let Some(filter_state) = &mut self.filter_state else {
                     warn!("No current filter applied. Ignoring. {}", id);
                     return Ok(());
                 };
 
-                let maybe_line_no = filter_state.matches.get(line_no);
+                let maybe_line_no = filter_state.matches.get(match_no);
                 match maybe_line_no {
                     None => {
-                        trace!("Registering interest in: {} / {}", id, line_no);
-                        client.interested.insert(line_no);
+                        trace!("Registering interest in: {} / {}", id, match_no);
+                        client.interested.insert(match_no);
                         Ok(())
                     }
                     Some(line_no) => {
@@ -269,7 +274,8 @@ impl FFile {
                             })
                             .await?;
 
-                        client.pending.insert(*line_no);
+                        client.pending.insert(*line_no); // TODO: Need pending?
+                        filter_state.line_to_match.insert(*line_no, match_no);
 
                         Ok(())
                     }
@@ -335,7 +341,7 @@ impl FFile {
                 })
                 .await?;
 
-            filter_state.next_line += 1;
+            filter_state.next_line_to_request += 1;
         }
 
         Ok(())
@@ -353,6 +359,15 @@ impl FFile {
             return Ok(());
         };
 
+        if line_no != filter_state.next_line_expected {
+            warn!(
+                "Next spooled line {} is not expected {}",
+                line_no, filter_state.next_line_expected
+            );
+        }
+
+        filter_state.next_line_expected += 1;
+
         if filter_state.filter_re.find(&line_content).is_some() {
             trace!("Line matches...");
             // TODO: Can we be sure that the updates come in order?
@@ -362,6 +377,11 @@ impl FFile {
             filter_state.num_matches += 1;
 
             for (_, client) in self.clients.iter_mut() {
+                trace!(
+                    "Sending stats update to: {} - match {}",
+                    client.id,
+                    match_no
+                );
                 client
                     .channel
                     .send(FFResp::ViewUpdate {
@@ -373,6 +393,11 @@ impl FFile {
                     .await?;
 
                 if client.interested.remove(&match_no) {
+                    trace!(
+                        "Sending match to client: {} - match {}",
+                        client.id,
+                        match_no
+                    );
                     client
                         .channel
                         .send(FFResp::ViewUpdate {
@@ -397,11 +422,11 @@ impl FFile {
         self.if_req_sender
             .send(FileReq::GetLine {
                 id: self.id.clone(),
-                line_no: filter_state.next_line,
+                line_no: filter_state.next_line_to_request,
             })
             .await?;
 
-        filter_state.next_line += 1;
+        filter_state.next_line_to_request += 1;
 
         Ok(())
     }
@@ -416,7 +441,37 @@ impl FFile {
                         partial,
                     },
             } => {
-                self.next_spooling(line_no, line_content, partial).await?;
+                let Some(filter_state) = &mut self.filter_state else {
+                    // No current filter, so not expecting data... just ignore this.
+                    trace!("Ingoring data when no filter set.");
+                    return Ok(());
+                };
+
+                if line_no < filter_state.next_line_expected {
+                    let Some(match_no) = filter_state.line_to_match.remove(&line_no) else {
+                        trace!(
+                            "Line delivered without a corresponding waiting match: {}",
+                            line_no
+                        );
+                        return Ok(());
+                    };
+
+                    for (_, client) in self.clients.iter() {
+                        trace!("Forwarding matched filter line: {}", match_no);
+                        client
+                            .channel
+                            .send(FFResp::ViewUpdate {
+                                update: FileResp::Line {
+                                    line_no: match_no,
+                                    line_content: line_content.clone(),
+                                    partial,
+                                },
+                            })
+                            .await?;
+                    }
+                } else {
+                    self.next_spooling(line_no, line_content, partial).await?;
+                }
             }
             _ => {
                 trace!("Ignoring unimportant message: {:?}", update);
