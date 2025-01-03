@@ -23,12 +23,12 @@ use ratatui::{
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
-    layout::{Alignment, Constraint, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Flex, Layout, Margin, Rect},
     style::{Style, Stylize},
     symbols,
     text::{Line, Span, Text},
     widgets::{
-        block::BlockExt, Block, BorderType, Borders, Cell, Paragraph, Row, Scrollbar,
+        block::BlockExt, Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Scrollbar,
         ScrollbarOrientation, ScrollbarState, StatefulWidget, Table, TableState, Widget,
     },
     DefaultTerminal, Frame, Terminal,
@@ -133,11 +133,16 @@ pub struct Tui {
 
     // The current filter
     filter_spec: Option<FilterSpec>,
+    filter_enabled: bool,
 
     // true for content, false for filter
     current_window: bool,
     // Fill ratio for content pane... 1..9
     content_fill: usize,
+
+    // Are we showing the filter edit modal?
+    show_filter_edit: bool,
+    // TODO: Hold separate state when editing the filter spec, so we can cancel or accept changes.
 }
 
 impl Tui {
@@ -190,9 +195,12 @@ impl Tui {
                 filter: "0$".to_owned(),
                 mode: FilterMode::Regex,
             }),
+            filter_enabled: true,
 
             current_window: true,
             content_fill: 7,
+
+            show_filter_edit: false,
         };
 
         s
@@ -205,12 +213,14 @@ impl Tui {
         self.filter_state.view.init().await?;
 
         // Initialise the filter spec.
-        self.ff_sender
-            .send(FFReq::SetFilter {
-                filter_spec: self.filter_spec.clone(),
-                response: None,
-            })
-            .await?;
+        if self.filter_enabled {
+            self.ff_sender
+                .send(FFReq::SetFilter {
+                    filter_spec: self.filter_spec.clone(),
+                    response: None,
+                })
+                .await?;
+        }
 
         let mut reader = EventStream::new();
         let mut interval = tokio::time::interval(Duration::from_millis(MS_PER_FRAME));
@@ -321,7 +331,7 @@ impl Tui {
         if let Event::Key(key) = event {
             if key.kind == event::KeyEventKind::Press {
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
+                    KeyCode::Char('q') => return Ok(true),
                     KeyCode::Char('j') | KeyCode::Down => self.scroll(1).await?,
                     KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await?,
                     KeyCode::Char('d') => self.scroll(20).await?,
@@ -337,6 +347,14 @@ impl Tui {
                     KeyCode::Char('t') => self.toggle_tail().await?,
 
                     KeyCode::Tab => self.current_window = !self.current_window,
+
+                    KeyCode::Char('/') => self.show_filter_edit = true,
+                    KeyCode::Esc => self.show_filter_edit = false,
+                    KeyCode::Char('e') => {
+                        if self.show_filter_edit {
+                            self.filter_enabled = !self.filter_enabled
+                        }
+                    }
 
                     _ => {}
                 }
@@ -416,8 +434,9 @@ impl Tui {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
+        let area = frame.area();
         let [title_area, main_area] =
-            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
+            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
         let [file_area, controls_area, filter_area] = Layout::vertical([
             Constraint::Fill(self.content_fill as u16),
             Constraint::Length(1),
@@ -490,6 +509,47 @@ impl Tui {
             }),
             &mut self.filter_scroll_state,
         );
+
+        // Render the filter spec dialog if needed.
+        if self.show_filter_edit {
+            let area = Tui::popup_area(area, 60, 20);
+            frame.render_widget(Clear, area);
+
+            let surrounding_block = Block::bordered().title("Filter");
+            let inner_area = surrounding_block.inner(area);
+
+            let vertical = Layout::vertical([
+                Constraint::Min(2),
+                Constraint::Min(1),
+                Constraint::Fill(10),
+                Constraint::Min(3),
+            ]);
+            let [instructions_area, enabled_area, spec_area, mode_area] =
+                vertical.areas(inner_area);
+
+            let instructions =
+                Paragraph::new("Set the filter... (Enter to accept, Esc to cancel)").centered();
+            frame.render_widget(instructions, instructions_area);
+
+            let enabled = Span::from(format!(
+                "   {} [E]nabled",
+                if self.filter_enabled { "☑" } else { "☐" }
+            ));
+            frame.render_widget(enabled, enabled_area);
+
+            // TODO: Filter spec text box
+            // TODO: Mode radio buttons
+
+            frame.render_widget(surrounding_block, area);
+        }
+    }
+
+    fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+        let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
+        let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
+        let [area] = vertical.areas(area);
+        let [area] = horizontal.areas(area);
+        area
     }
 
     fn selected_border(&self, selected: bool) -> symbols::border::Set {
