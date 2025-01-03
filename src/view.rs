@@ -69,6 +69,10 @@ impl LinesSlice {
 }
 
 impl LineCache {
+    pub fn reset(&mut self) {
+        self.set_viewport(self.range.clone());
+    }
+
     // Set the viewport and report on this lines need to be fetched.
     pub fn set_viewport(&mut self, viewport: LinesSlice) -> Vec<usize> {
         trace!("New viewport: {:?}", viewport);
@@ -150,12 +154,6 @@ impl LineCache {
         }
 
         let s = self.lines[line_no - self.range.first_line].clone();
-        // trace!(
-        //     "XXX Getting {} {} = {:?}",
-        //     line_no,
-        //     line_no - self.range.first_line,
-        //     s
-        // );
 
         s
     }
@@ -199,9 +197,10 @@ impl<T: std::marker::Send + 'static> View<T> {
     }
 
     pub fn reset(&mut self) {
+        trace!("Reset view");
         self.stats.file_lines = 0;
         self.stats.file_bytes = 0;
-        self.line_cache = LineCache::default();
+        self.line_cache.reset();
     }
 
     // Sync methods... callable from the TUI render function.
@@ -251,11 +250,6 @@ impl<T: std::marker::Send + 'static> View<T> {
     }
 
     pub async fn set_current(&mut self, line_no: usize) -> Result<()> {
-        // trace!(
-        //     "XXX set current: {}, range: {:?}",
-        //     line_no,
-        //     self.viewport.range()
-        // );
         self.current = line_no;
 
         // Whilst the current line is in the viewport, do not scroll.
@@ -321,11 +315,6 @@ impl<T: std::marker::Send + 'static> View<T> {
     }
 
     async fn set_viewport(&mut self, viewport: LinesSlice) -> Result<()> {
-        // trace!(
-        //     "XXX Set viewport old: {:?} new: {:?}",
-        //     self.viewport,
-        //     viewport
-        // );
         if self.viewport == viewport {
             return Ok(());
         }

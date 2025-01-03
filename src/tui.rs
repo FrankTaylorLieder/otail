@@ -198,7 +198,6 @@ impl Tui {
         self.filter_state.view.init().await?;
 
         // TODO: Remove this...
-        trace!("XXX Setting filter");
         self.ff_sender
             .send(FFReq::SetFilter {
                 filter_spec: Some(FilterSpec {

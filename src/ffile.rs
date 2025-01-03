@@ -412,11 +412,6 @@ impl FFile {
             }
         } else {
             trace!("Line does not match");
-            trace!(
-                "XXX Missed: {} / {}$",
-                filter_state.filter_spec.filter,
-                line_content
-            );
         }
 
         self.if_req_sender
