@@ -243,4 +243,12 @@ FFile initial design:
 - Uses tailing on top of a IFile to spool the file.
   - May need a specific spooling mechanism to prevent channel overflow whilst spooling the file.
 
-Next: Get a simple filter working - need to set the filter (fixed in TUI)
+Basic workflow working.
+
+Commit: 05e953e
+
+Floating window for filter edits:
+
+- Use tui_input for a simple edit textbox
+- Design:
+  - Floating window with a textbox, radios for regexp, insensitive/sensitive. Toggle for enable.

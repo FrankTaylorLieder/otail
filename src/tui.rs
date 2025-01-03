@@ -36,7 +36,7 @@ use ratatui::{
 
 use crate::{
     common::{CHANNEL_BUFFER, MS_PER_FRAME},
-    ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterSpec},
+    ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterMode, FilterSpec},
     ifile::{FileReqSender, FileRespReceiver, IFResp},
     view::{LinesSlice, UpdateAction, View},
 };
@@ -131,6 +131,9 @@ pub struct Tui {
     filter_scroll_state: ScrollbarState,
     filter_tail: bool,
 
+    // The current filter
+    filter_spec: Option<FilterSpec>,
+
     // true for content, false for filter
     current_window: bool,
     // Fill ratio for content pane... 1..9
@@ -183,6 +186,10 @@ impl Tui {
                 cell_renders: 0,
             },
             filter_tail: false,
+            filter_spec: Some(FilterSpec {
+                filter: "0$".to_owned(),
+                mode: FilterMode::Regex,
+            }),
 
             current_window: true,
             content_fill: 7,
@@ -197,13 +204,10 @@ impl Tui {
         self.content_state.view.init().await?;
         self.filter_state.view.init().await?;
 
-        // TODO: Remove this...
+        // Initialise the filter spec.
         self.ff_sender
             .send(FFReq::SetFilter {
-                filter_spec: Some(FilterSpec {
-                    filter: "0$".to_owned(),
-                    mode: crate::ffile::FilterMode::Regex,
-                }),
+                filter_spec: self.filter_spec.clone(),
                 response: None,
             })
             .await?;
