@@ -1,10 +1,10 @@
 #![allow(unused_imports, unused_variables)]
 use anyhow::{bail, Result};
-use crossterm::event::EventStream;
+use crossterm::event::{EventStream, KeyModifiers};
 use fmtsize::{Conventional, FmtSize};
 use futures::{FutureExt, StreamExt};
 use futures_timer::Delay;
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use num_format::{Locale, ToFormattedString};
 use std::{
     io::{self, stdout},
@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 use tokio::{select, sync::mpsc, time::interval};
+use tui_input::{backend::crossterm::EventHandler, Input};
 
 use ratatui::{
     backend::CrosstermBackend,
@@ -23,7 +24,7 @@ use ratatui::{
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
-    layout::{Alignment, Constraint, Flex, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Flex, Layout, Margin, Position, Rect},
     style::{Style, Stylize},
     symbols,
     text::{Line, Span, Text},
@@ -115,6 +116,13 @@ impl<'a, T: std::marker::Send + 'static> StatefulWidget for LazyList<'a, T> {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FilterEditState {
+    enabled: bool,
+    input: Input,
+    filter_spec: FilterSpec,
+}
+
 pub struct Tui {
     path: String,
 
@@ -132,7 +140,7 @@ pub struct Tui {
     filter_tail: bool,
 
     // The current filter
-    filter_spec: Option<FilterSpec>,
+    filter_spec: FilterSpec,
     filter_enabled: bool,
 
     // true for content, false for filter
@@ -141,8 +149,7 @@ pub struct Tui {
     content_fill: usize,
 
     // Are we showing the filter edit modal?
-    show_filter_edit: bool,
-    // TODO: Hold separate state when editing the filter spec, so we can cancel or accept changes.
+    filter_edit: Option<FilterEditState>,
 }
 
 impl Tui {
@@ -191,16 +198,16 @@ impl Tui {
                 cell_renders: 0,
             },
             filter_tail: false,
-            filter_spec: Some(FilterSpec {
-                filter: "0$".to_owned(),
+            filter_spec: FilterSpec {
+                filter: "".to_owned(),
                 mode: FilterMode::Regex,
-            }),
-            filter_enabled: true,
+            },
+            filter_enabled: false,
 
             current_window: true,
             content_fill: 7,
 
-            show_filter_edit: false,
+            filter_edit: None,
         };
 
         s
@@ -213,14 +220,7 @@ impl Tui {
         self.filter_state.view.init().await?;
 
         // Initialise the filter spec.
-        if self.filter_enabled {
-            self.ff_sender
-                .send(FFReq::SetFilter {
-                    filter_spec: self.filter_spec.clone(),
-                    response: None,
-                })
-                .await?;
-        }
+        self.set_filter_spec(self.filter_spec.clone()).await?;
 
         let mut reader = EventStream::new();
         let mut interval = tokio::time::interval(Duration::from_millis(MS_PER_FRAME));
@@ -328,40 +328,76 @@ impl Tui {
     }
 
     async fn handle_event(&mut self, event: &Event) -> Result<bool> {
+        let mut filter_spec_to_apply = None;
         if let Event::Key(key) = event {
             if key.kind == event::KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(true),
-                    KeyCode::Char('j') | KeyCode::Down => self.scroll(1).await?,
-                    KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await?,
-                    KeyCode::Char('d') => self.scroll(20).await?,
-                    KeyCode::Char('u') => self.scroll(-20).await?,
-                    KeyCode::Char(' ') => self.scroll_page(1).await?,
-                    KeyCode::Backspace => self.scroll_page(-1).await?,
-                    KeyCode::Char('g') => self.top().await?,
-                    KeyCode::Char('G') => self.bottom().await?,
+                match &mut self.filter_edit {
+                    // Showing the main window.
+                    None => match key.code {
+                        KeyCode::Char('q') => return Ok(true),
+                        KeyCode::Char('j') | KeyCode::Down => self.scroll(1).await?,
+                        KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await?,
+                        KeyCode::Char('d') => self.scroll(20).await?,
+                        KeyCode::Char('u') => self.scroll(-20).await?,
+                        KeyCode::Char(' ') => self.scroll_page(1).await?,
+                        KeyCode::Backspace => self.scroll_page(-1).await?,
+                        KeyCode::Char('g') => self.top().await?,
+                        KeyCode::Char('G') => self.bottom().await?,
 
-                    KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1).await,
-                    KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1).await,
+                        KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1).await,
+                        KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1).await,
 
-                    KeyCode::Char('t') => self.toggle_tail().await?,
+                        KeyCode::Char('t') => self.toggle_tail().await?,
 
-                    KeyCode::Tab => self.current_window = !self.current_window,
+                        KeyCode::Tab => self.current_window = !self.current_window,
 
-                    KeyCode::Char('/') => self.show_filter_edit = true,
-                    KeyCode::Esc => self.show_filter_edit = false,
-                    KeyCode::Char('e') => {
-                        if self.show_filter_edit {
+                        KeyCode::Char('/') => self.start_edit_filter(),
+
+                        _ => {}
+                    },
+                    // Showing the filter edit dialog.
+                    Some(filter_edit) => match (key.code, key.modifiers) {
+                        (KeyCode::Esc, _) => self.filter_edit = None,
+                        (KeyCode::Enter, _) => {
+                            filter_spec_to_apply = Some(FilterSpec {
+                                filter: filter_edit.input.value().to_owned(),
+                                mode: filter_edit.filter_spec.mode.clone(),
+                            });
+                        }
+                        (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
                             self.filter_enabled = !self.filter_enabled
                         }
-                    }
-
-                    _ => {}
+                        _ => {
+                            filter_edit.input.handle_event(&Event::Key(*key));
+                        }
+                    },
                 }
             }
         }
 
+        if let Some(filter_spec) = filter_spec_to_apply {
+            self.set_filter_spec(filter_spec).await?;
+        }
+
         Ok(false)
+    }
+
+    async fn set_filter_spec(&mut self, filter_spec: FilterSpec) -> Result<()> {
+        trace!("Setting the filter spec: {:?}", filter_spec);
+        self.filter_spec = filter_spec;
+
+        self.ff_sender
+            .send(FFReq::SetFilter {
+                filter_spec: if self.filter_enabled {
+                    Some(self.filter_spec.clone())
+                } else {
+                    None
+                },
+                response: None,
+            })
+            .await?;
+
+        Ok(())
     }
 
     async fn place(&mut self, i: usize) -> Result<()> {
@@ -431,6 +467,14 @@ impl Tui {
             self.filter_tail = !self.filter_tail;
             self.filter_state.view.set_tail(self.filter_tail).await
         }
+    }
+
+    fn start_edit_filter(&mut self) {
+        self.filter_edit = Some(FilterEditState {
+            enabled: self.filter_enabled,
+            input: self.filter_spec.filter.as_str().into(),
+            filter_spec: self.filter_spec.clone(),
+        });
     }
 
     fn draw(&mut self, frame: &mut Frame) {
@@ -511,7 +555,7 @@ impl Tui {
         );
 
         // Render the filter spec dialog if needed.
-        if self.show_filter_edit {
+        if let Some(filter_edit) = &self.filter_edit {
             let area = Tui::popup_area(area, 60, 20);
             frame.render_widget(Clear, area);
 
@@ -537,8 +581,15 @@ impl Tui {
             ));
             frame.render_widget(enabled, enabled_area);
 
-            // TODO: Filter spec text box
-            // TODO: Mode radio buttons
+            let input_widget = Paragraph::new(filter_edit.input.value())
+                .block(Block::default().borders(Borders::ALL).title("Expression"));
+            frame.render_widget(input_widget, spec_area);
+
+            let cursor_position = filter_edit.input.cursor() as u16;
+            frame.set_cursor_position(Position::new(
+                spec_area.x + cursor_position + 1,
+                spec_area.y + 1,
+            ));
 
             frame.render_widget(surrounding_block, area);
         }
