@@ -286,8 +286,8 @@ impl Tui {
                                 IFResp::Truncated => {
                                     debug!("{}: File truncated", self.path);
 
-                                    self.content_state.view.reset();
-                                    self.filter_state.view.reset();
+                                    self.content_state.view.reset().await?;
+                                    self.filter_state.view.reset().await?;
                                 }
                                 IFResp::FileError { reason } => {
                                     error!("{}: File error: {reason}", self.path);
@@ -312,7 +312,7 @@ impl Tui {
                                     self.filter_state.view.handle_update(update).await;
                                 }
                                 FFResp::Clear => {
-                                    self.filter_state.view.reset();
+                                    self.filter_state.view.reset().await?;
                                 }
                             }
                         }
@@ -359,13 +359,14 @@ impl Tui {
                     Some(filter_edit) => match (key.code, key.modifiers) {
                         (KeyCode::Esc, _) => self.filter_edit = None,
                         (KeyCode::Enter, _) => {
+                            self.filter_enabled = filter_edit.enabled;
                             filter_spec_to_apply = Some(FilterSpec {
                                 filter: filter_edit.input.value().to_owned(),
                                 mode: filter_edit.filter_spec.mode.clone(),
                             });
                         }
-                        (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
-                            self.filter_enabled = !self.filter_enabled
+                        (KeyCode::Char('t'), KeyModifiers::CONTROL) => {
+                            filter_edit.enabled = !filter_edit.enabled;
                         }
                         _ => {
                             filter_edit.input.handle_event(&Event::Key(*key));
@@ -383,7 +384,7 @@ impl Tui {
     }
 
     async fn set_filter_spec(&mut self, filter_spec: FilterSpec) -> Result<()> {
-        trace!("Setting the filter spec: {:?}", filter_spec);
+        trace!("Setting filter spec: {:?}", filter_spec);
         self.filter_spec = filter_spec;
 
         self.ff_sender
@@ -572,12 +573,12 @@ impl Tui {
                 vertical.areas(inner_area);
 
             let instructions =
-                Paragraph::new("Set the filter... (Enter to accept, Esc to cancel)").centered();
+                Paragraph::new("Set the filter... (Enter to apply, Esc to close)").centered();
             frame.render_widget(instructions, instructions_area);
 
             let enabled = Span::from(format!(
-                "   {} [E]nabled",
-                if self.filter_enabled { "☑" } else { "☐" }
+                "   {} [T]oggle enabled",
+                if filter_edit.enabled { "☑" } else { "☐" }
             ));
             frame.render_widget(enabled, enabled_area);
 

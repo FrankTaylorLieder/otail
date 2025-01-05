@@ -69,9 +69,13 @@ impl LinesSlice {
 }
 
 impl LineCache {
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> Vec<usize> {
         self.set_viewport(self.range.clone());
+
+        self.missing_lines()
     }
+
+    // TODO: Request missing lines
 
     // Set the viewport and report on this lines need to be fetched.
     pub fn set_viewport(&mut self, viewport: LinesSlice) -> Vec<usize> {
@@ -90,10 +94,14 @@ impl LineCache {
             }
         }
 
-        let first_line = viewport.first_line;
-
         self.lines = new_lines;
         self.range = viewport;
+
+        self.missing_lines()
+    }
+
+    fn missing_lines(&self) -> Vec<usize> {
+        let first_line = self.range.first_line;
 
         let missing_lines = self
             .lines
@@ -196,11 +204,15 @@ impl<T: std::marker::Send + 'static> View<T> {
         Ok(())
     }
 
-    pub fn reset(&mut self) {
+    pub async fn reset(&mut self) -> Result<()> {
         trace!("Reset view");
         self.stats.file_lines = 0;
         self.stats.file_bytes = 0;
-        self.line_cache.reset();
+        let missing = self.line_cache.reset();
+
+        self.request_missing(missing).await?;
+
+        Ok(())
     }
 
     // Sync methods... callable from the TUI render function.
@@ -324,6 +336,12 @@ impl<T: std::marker::Send + 'static> View<T> {
 
         // TODO: Cancel missing lines no longer needed.
 
+        self.request_missing(missing).await?;
+
+        Ok(())
+    }
+
+    async fn request_missing(&self, missing: Vec<usize>) -> Result<()> {
         // Request the lines we don't have.
         for line_no in missing {
             trace!("Client {} sending line request {}", self.id, line_no);
