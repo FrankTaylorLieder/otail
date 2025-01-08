@@ -472,7 +472,7 @@ impl Tui {
 
     fn start_edit_filter(&mut self) {
         self.filter_edit = Some(FilterEditState {
-            enabled: self.filter_enabled,
+            enabled: true,
             input: self.filter_spec.filter.as_str().into(),
             filter_spec: self.filter_spec.clone(),
         });
@@ -597,9 +597,10 @@ impl Tui {
     }
 
     fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
-        let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
+        let vertical = Layout::vertical([Constraint::Max(5), Constraint::Percentage(percent_y)])
+            .flex(Flex::Start);
         let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
-        let [area] = vertical.areas(area);
+        let [_, area] = vertical.areas(area);
         let [area] = horizontal.areas(area);
         area
     }

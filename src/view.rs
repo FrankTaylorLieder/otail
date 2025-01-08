@@ -70,7 +70,7 @@ impl LinesSlice {
 
 impl LineCache {
     pub fn reset(&mut self) -> Vec<usize> {
-        self.set_viewport(self.range.clone());
+        self.lines = vec![None; self.range.num_lines];
 
         self.missing_lines()
     }
@@ -210,6 +210,8 @@ impl<T: std::marker::Send + 'static> View<T> {
         self.stats.file_bytes = 0;
         let missing = self.line_cache.reset();
 
+        trace!("XXX Missing lines {:?}", missing);
+
         self.request_missing(missing).await?;
 
         Ok(())
@@ -344,7 +346,11 @@ impl<T: std::marker::Send + 'static> View<T> {
     async fn request_missing(&self, missing: Vec<usize>) -> Result<()> {
         // Request the lines we don't have.
         for line_no in missing {
-            trace!("Client {} sending line request {}", self.id, line_no);
+            trace!(
+                "Client {} sending missing line request {}",
+                self.id,
+                line_no
+            );
             self.ifile_req_sender
                 .send(FileReq::GetLine {
                     id: self.id.clone(),
