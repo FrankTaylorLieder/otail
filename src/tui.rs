@@ -377,7 +377,13 @@ impl Tui {
         }
 
         if let Some(filter_spec) = filter_spec_to_apply {
-            self.set_filter_spec(filter_spec).await?;
+            trace!(
+                "XXX Applying filter spec: {:?}, {}",
+                filter_spec,
+                self.filter_enabled
+            );
+            self.set_filter_spec(filter_spec.clone()).await?;
+            self.filter_spec = filter_spec;
         }
 
         Ok(false)
@@ -518,7 +524,7 @@ impl Tui {
         frame.render_stateful_widget(content, file_area, &mut self.content_state);
         self.render_scrollbar(frame, file_area);
 
-        let filter_control_filter = Span::from(format!("Filter: {}", "TODO"));
+        let filter_control_filter = Span::from(format!("Filter: {}", self.render_filter_spec()));
         let filter_controls = Span::from(format!(
             " {} Tail",
             if self.filter_tail { "☑" } else { "☐" }
@@ -644,6 +650,14 @@ impl Tui {
             }),
             &mut self.content_scroll_state,
         );
+    }
+
+    fn render_filter_spec(&self) -> String {
+        if self.filter_enabled {
+            format!("{:?}", self.filter_spec)
+        } else {
+            "(None)".to_owned()
+        }
     }
 }
 
