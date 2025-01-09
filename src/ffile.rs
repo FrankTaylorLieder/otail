@@ -39,6 +39,20 @@ pub struct FilterSpec {
     pub mode: FilterMode,
 }
 
+impl FilterSpec {
+    pub fn render(&self) -> String {
+        format!(
+            "\"{}\" ({})",
+            self.filter,
+            match self.mode {
+                FilterMode::SimpleCaseSensitive => "Sensitive",
+                FilterMode::SimpleCaseInsensitive => "Insensitive",
+                FilterMode::Regex => "Regex",
+            }
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FFReqResp {
     Ok,

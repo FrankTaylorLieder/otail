@@ -658,7 +658,7 @@ impl Tui {
 
     fn render_filter_spec(&self) -> String {
         if self.filter_enabled {
-            format!("{:?}", self.filter_spec)
+            format!("{}", self.filter_spec.render())
         } else {
             "(None)".to_owned()
         }
