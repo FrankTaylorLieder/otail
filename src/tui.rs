@@ -339,8 +339,8 @@ impl Tui {
                         KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await?,
                         KeyCode::Char('d') => self.scroll(20).await?,
                         KeyCode::Char('u') => self.scroll(-20).await?,
-                        KeyCode::Char(' ') => self.scroll_page(1).await?,
-                        KeyCode::Backspace => self.scroll_page(-1).await?,
+                        KeyCode::Char(' ') | KeyCode::PageDown => self.scroll_page(1).await?,
+                        KeyCode::Backspace | KeyCode::PageUp => self.scroll_page(-1).await?,
                         KeyCode::Char('g') => self.top().await?,
                         KeyCode::Char('G') => self.bottom().await?,
 
