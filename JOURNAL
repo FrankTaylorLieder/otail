@@ -269,3 +269,7 @@ Usability issues:
 - Locking filtered to content view line selection
   - Need to explicitly track content line on filter content.
 - Showing the current filter spec.
+- DONE Tailing on filter
+- Scrolling whilst tailing... disable tailing when the viewport changes.
+- G on Filter view takes you past the last line... viewport set too large?
+

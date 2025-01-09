@@ -265,7 +265,10 @@ impl FFile {
                         Ok(())
                     }
                     Some(line_no) => {
-                        trace!("Requesting match line: {} / {}", line_no, line_no);
+                        // self.request_line_for_client(filter_state, client, *line_no, match_no)
+                        //     .await?;
+                        // Ok(())
+                        trace!("Requesting match line: {} / {}", line_no, match_no);
 
                         self.if_req_sender
                             .send(crate::ifile::FileReq::GetLine {
@@ -318,10 +321,95 @@ impl FFile {
                 trace!("Finished register");
                 Ok(())
             }
-            FileReq::EnableTailing { id, last_seen_line } => todo!(),
-            FileReq::DisableTailing { id } => todo!(),
+            FileReq::EnableTailing { id, last_seen_line } => {
+                self.enable_tailing(id, last_seen_line).await
+            }
+            FileReq::DisableTailing { id } => self.disable_tailing(id).await,
         }
     }
+
+    async fn disable_tailing(&mut self, id: String) -> Result<()> {
+        trace!("Disable tailing: {}", id);
+
+        let Some(client) = self.clients.get_mut(&id) else {
+            warn!("Unknown client, ignoring request: {}", id);
+            return Ok(());
+        };
+
+        client.tailing = false;
+
+        Ok(())
+    }
+
+    async fn enable_tailing(&mut self, id: String, last_seen_line: usize) -> Result<()> {
+        trace!("Enable tailing: {}", id);
+        let Some(client) = self.clients.get_mut(&id) else {
+            warn!("Unknown client, ignoring request: {}", id);
+            return Ok(());
+        };
+
+        client.tailing = true;
+
+        let Some(filter_state) = &mut self.filter_state else {
+            trace!("No filter set, nothing more to do.");
+            return Ok(());
+        };
+
+        // Determine which lines the client will not know about.
+        for match_no in last_seen_line..filter_state.num_matches {
+            let sl = filter_state.matches.get(match_no);
+            let Some(l) = sl else {
+                warn!(
+                    "Unknown line whilst sending missing tailing lines: {}",
+                    match_no
+                );
+                continue;
+            };
+
+            let Some(line_no) = filter_state.matches.get(match_no) else {
+                warn!(
+                    "Attempted for fetch match that does not exist: match_no: {}",
+                    match_no
+                );
+                return Ok(());
+            };
+
+            trace!("Requesting match line: {} / {}", line_no, match_no);
+
+            self.if_req_sender
+                .send(crate::ifile::FileReq::GetLine {
+                    id: self.id.clone(),
+                    line_no: *line_no,
+                })
+                .await?;
+
+            client.pending.insert(*line_no); // TODO: Need pending?
+            filter_state.line_to_match.insert(*line_no, match_no);
+        }
+        Ok(())
+    }
+
+    // async fn request_line_for_client(
+    //     &mut self,
+    //     filter_state: &mut FilterState,
+    //     client: &mut Client,
+    //     line_no: usize,
+    //     match_no: usize,
+    // ) -> Result<()> {
+    //     trace!("Requesting match line: {} / {}", line_no, match_no);
+    //
+    //     self.if_req_sender
+    //         .send(crate::ifile::FileReq::GetLine {
+    //             id: self.id.clone(),
+    //             line_no,
+    //         })
+    //         .await?;
+    //
+    //     client.pending.insert(line_no); // TODO: Need pending?
+    //     filter_state.line_to_match.insert(line_no, match_no);
+    //
+    //     Ok(())
+    // }
 
     async fn start_spooling(&mut self) -> Result<()> {
         trace!("Start spooling: {}", self.id);

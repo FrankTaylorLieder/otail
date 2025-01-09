@@ -453,8 +453,12 @@ impl Tui {
     }
 
     async fn bottom(&mut self) -> Result<()> {
-        self.place((self.content_state.view.get_stats().file_lines - 1) as usize)
-            .await
+        let file_lines = if self.current_window {
+            self.content_state.view.get_stats().file_lines
+        } else {
+            self.filter_state.view.get_stats().file_lines
+        };
+        self.place(file_lines - 1).await
     }
 
     async fn resize(&mut self, delta: isize) {
