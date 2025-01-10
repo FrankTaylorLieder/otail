@@ -266,7 +266,9 @@ Usability issues:
 - See the end of long lines.
   - Scroll left/right
   - Toggle wrapping
-- Locking filtered to content view line selection
+- Syncing filtered to content view line selection
+  - Press 's' to sync one off.
+  - Provide a locked mode to always sync
   - Need to explicitly track content line on filter content.
 - DONE Showing the current filter spec.
 - DONE Tailing on filter

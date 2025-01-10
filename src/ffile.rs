@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 use tokio::sync::oneshot;
 
 use anyhow::{anyhow, Result};
@@ -23,7 +23,7 @@ pub type FilterReqRespReceiver = oneshot::Receiver<FFReqResp>;
 
 #[derive(Debug)]
 pub enum FFResp {
-    ViewUpdate { update: FileResp },
+    ViewUpdate { update: FileResp<FilterLine> },
     Clear,
 }
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -88,6 +88,18 @@ struct FilterState {
     next_line_to_request: LineNo,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct FilterLine {
+    pub line_no: usize,
+    pub line: String,
+}
+
+impl Display for FilterLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.line)
+    }
+}
+
 pub struct FFile {
     id: String,
     path: PathBuf,
@@ -101,9 +113,9 @@ pub struct FFile {
     ff_req_receiver: FFReqReceiver,
 
     // Interact with the downstream IFile
-    if_resp_receiver: FileRespReceiver<IFResp>,
-    if_resp_sender: FileRespSender<IFResp>,
-    if_req_sender: FileReqSender<IFResp>,
+    if_resp_receiver: FileRespReceiver<IFResp<String>>,
+    if_resp_sender: FileRespSender<IFResp<String>>,
+    if_req_sender: FileReqSender<IFResp<String>>,
 
     clients: HashMap<String, Client>,
 
@@ -111,7 +123,7 @@ pub struct FFile {
 }
 
 impl FFile {
-    pub fn new(id: String, path: &str, if_req_sender: FileReqSender<IFResp>) -> FFile {
+    pub fn new(id: String, path: &str, if_req_sender: FileReqSender<IFResp<String>>) -> FFile {
         let mut pb = PathBuf::new();
         pb.push(path);
 
@@ -505,7 +517,10 @@ impl FFile {
                         .send(FFResp::ViewUpdate {
                             update: FileResp::Line {
                                 line_no: match_no,
-                                line_content: line_content.clone(),
+                                line_content: FilterLine {
+                                    line_no,
+                                    line: line_content.clone(),
+                                },
                                 partial,
                             },
                         })
@@ -528,7 +543,7 @@ impl FFile {
         Ok(())
     }
 
-    async fn handle_ifile_update(&mut self, update: IFResp) -> Result<()> {
+    async fn handle_ifile_update(&mut self, update: IFResp<String>) -> Result<()> {
         match update {
             IFResp::ViewUpdate {
                 update:
@@ -560,7 +575,10 @@ impl FFile {
                             .send(FFResp::ViewUpdate {
                                 update: FileResp::Line {
                                     line_no: match_no,
-                                    line_content: line_content.clone(),
+                                    line_content: FilterLine {
+                                        line_no,
+                                        line: line_content.clone(),
+                                    },
                                     partial,
                                 },
                             })

@@ -25,13 +25,13 @@ pub struct Stats {
 }
 
 #[derive(Debug, Default)]
-struct LineCache {
+struct LineCache<L> {
     range: LinesSlice,
-    lines: Vec<Option<String>>,
+    lines: Vec<Option<L>>,
 }
 
 #[derive(Debug)]
-pub struct View<T> {
+pub struct View<T, L> {
     id: String,
     path: String,
 
@@ -43,7 +43,7 @@ pub struct View<T> {
 
     stats: Stats,
 
-    line_cache: LineCache,
+    line_cache: LineCache<L>,
 
     tailing: bool,
 }
@@ -68,7 +68,7 @@ impl LinesSlice {
     }
 }
 
-impl LineCache {
+impl<L: Clone> LineCache<L> {
     pub fn reset(&mut self) -> Vec<usize> {
         self.lines = vec![None; self.range.num_lines];
 
@@ -124,7 +124,7 @@ impl LineCache {
         &self.range
     }
 
-    pub fn set_line(&mut self, line_no: usize, line: String, tailing: bool) -> bool {
+    pub fn set_line(&mut self, line_no: usize, line: L, tailing: bool) -> bool {
         if !self.range.range().contains(&line_no) {
             // Determine the next line after the current buffer if we were tailing.
             let tail_line = self.range.first_line + self.range.num_lines;
@@ -145,14 +145,14 @@ impl LineCache {
         true
     }
 
-    fn add_tail(&mut self, line_no: usize, line: String) {
+    fn add_tail(&mut self, line_no: usize, line: L) {
         trace!("Adding line whilst tailing: {}", line_no);
         self.lines.remove(0);
         self.range.first_line += 1;
         self.lines.push(Some(line));
     }
 
-    pub fn get_line(&self, line_no: usize) -> Option<String> {
+    pub fn get_line(&self, line_no: usize) -> Option<L> {
         if !self.range.range().contains(&line_no) {
             warn!(
                 "Requested line outside the current ViewPort: line: {}, viewport: {:?}",
@@ -167,7 +167,7 @@ impl LineCache {
     }
 }
 
-impl<T: std::marker::Send + 'static> View<T> {
+impl<T: std::marker::Send + 'static, L: Clone + Default + std::fmt::Display> View<T, L> {
     pub fn new(
         id: String,
         path: String,
@@ -219,7 +219,7 @@ impl<T: std::marker::Send + 'static> View<T> {
 
     // Sync methods... callable from the TUI render function.
     //
-    pub fn get_line(&mut self, line_no: usize) -> Option<String> {
+    pub fn get_line(&mut self, line_no: usize) -> Option<L> {
         self.line_cache.get_line(line_no)
     }
 
@@ -361,7 +361,7 @@ impl<T: std::marker::Send + 'static> View<T> {
         Ok(())
     }
 
-    pub async fn handle_update(&mut self, update: FileResp) {
+    pub async fn handle_update(&mut self, update: FileResp<L>) {
         match update {
             FileResp::Line {
                 line_no,

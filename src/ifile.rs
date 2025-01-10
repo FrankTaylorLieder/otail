@@ -41,21 +41,21 @@ pub enum FileReq<T> {
 }
 
 #[derive(Debug)]
-pub enum FileResp {
+pub enum FileResp<L> {
     Stats {
         file_lines: usize,
         file_bytes: usize,
     },
     Line {
         line_no: usize,
-        line_content: String,
+        line_content: L,
         partial: bool,
     },
 }
 
 #[derive(Debug)]
-pub enum IFResp {
-    ViewUpdate { update: FileResp },
+pub enum IFResp<L> {
+    ViewUpdate { update: FileResp<L> },
     Truncated,
     FileError { reason: String },
 }
@@ -70,17 +70,17 @@ struct SLine {
 }
 
 #[derive(Debug)]
-struct Client {
+struct Client<L> {
     id: String,
-    channel: FileRespSender<IFResp>,
+    channel: FileRespSender<IFResp<L>>,
     tailing: bool,
     interested: HashSet<usize>,
 }
 
 #[derive(Debug)]
 pub struct IFile {
-    view_receiver: FileReqReceiver<IFResp>,
-    view_sender: FileReqSender<IFResp>,
+    view_receiver: FileReqReceiver<IFResp<String>>,
+    view_sender: FileReqSender<IFResp<String>>,
     reader_receiver: ReaderUpdateReceiver,
     reader_sender: ReaderUpdateSender,
     path: PathBuf,
@@ -88,7 +88,7 @@ pub struct IFile {
     lines: Vec<SLine>,
     file_lines: usize,
     file_bytes: usize,
-    clients: HashMap<String, Client>,
+    clients: HashMap<String, Client<String>>,
 }
 
 impl IFile {
@@ -127,7 +127,7 @@ impl IFile {
         });
     }
 
-    pub fn get_view_sender(&self) -> FileReqSender<IFResp> {
+    pub fn get_view_sender(&self) -> FileReqSender<IFResp<String>> {
         self.view_sender.clone()
     }
 
@@ -277,7 +277,7 @@ impl IFile {
         }
     }
 
-    async fn handle_client_command(&mut self, cmd: FileReq<IFResp>) -> Result<()> {
+    async fn handle_client_command(&mut self, cmd: FileReq<IFResp<String>>) -> Result<()> {
         match cmd {
             FileReq::GetLine { id, line_no } => {
                 trace!("Client {} requested line {}", id, line_no);

@@ -7,6 +7,7 @@ use futures_timer::Delay;
 use log::{debug, error, info, trace, warn};
 use num_format::{Locale, ToFormattedString};
 use std::{
+    fmt::Display,
     io::{self, stdout},
     isize,
     marker::PhantomData,
@@ -37,14 +38,14 @@ use ratatui::{
 
 use crate::{
     common::{CHANNEL_BUFFER, MS_PER_FRAME},
-    ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterMode, FilterSpec},
+    ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterLine, FilterMode, FilterSpec},
     ifile::{FileReqSender, FileRespReceiver, IFResp},
     view::{LinesSlice, UpdateAction, View},
 };
 
 #[derive(Debug)]
-struct LazyState<T> {
-    view: View<T>,
+struct LazyState<T, L> {
+    view: View<T, L>,
 
     height_hint: usize,
 
@@ -52,16 +53,19 @@ struct LazyState<T> {
 }
 
 #[derive(Debug)]
-struct LazyList<'a, T> {
+struct LazyList<'a, T, L> {
     block: Option<Block<'a>>,
-    _phantom: PhantomData<T>,
+    _phantom_resp: PhantomData<T>,
+    _phantom_line: PhantomData<L>,
 }
 
-impl<'a, T> LazyList<'a, T> {
+impl<'a, T, L> LazyList<'a, T, L> {
     pub fn new() -> Self {
         Self {
             block: None,
-            _phantom: PhantomData,
+
+            _phantom_resp: PhantomData,
+            _phantom_line: PhantomData,
         }
     }
 
@@ -71,8 +75,10 @@ impl<'a, T> LazyList<'a, T> {
     }
 }
 
-impl<'a, T: std::marker::Send + 'static> StatefulWidget for LazyList<'a, T> {
-    type State = LazyState<T>;
+impl<'a, T: std::marker::Send + 'static, L: Clone + Default + Display> StatefulWidget
+    for LazyList<'a, T, L>
+{
+    type State = LazyState<T, L>;
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         // TODO: Make scrolling renders smooth.
         self.block.render(area, buf);
@@ -91,23 +97,21 @@ impl<'a, T: std::marker::Send + 'static> StatefulWidget for LazyList<'a, T> {
             if i >= num_lines {
                 break;
             }
-            let maybe_s = state.view.get_line(i);
+            let maybe_l = state.view.get_line(i);
 
-            // let Some(s) = s else {
-            //     trace!("Line {i} not yet available...");
-            //     break;
-            // };
-            let s = match maybe_s {
-                Some(s) => s,
+            let l = match maybe_l {
+                Some(l) => format!("{}", l),
                 None => "...".to_owned(),
             };
 
+            // TODO: Render the line_no, not the match_no for FilterLine. Will need to encapsulate
+            // String and have a render columns method or similar.
             lines.push(Line::from(format!(
                 "{}{:>5} {l:.w$}",
                 if i == current { ">" } else { " " },
                 i,
                 w = width as usize,
-                l = s
+                l = l
             )));
 
             state.cell_renders += 1;
@@ -126,16 +130,16 @@ struct FilterEditState {
 pub struct Tui {
     path: String,
 
-    content_ifresp_recv: FileRespReceiver<IFResp>,
+    content_ifresp_recv: FileRespReceiver<IFResp<String>>,
     filter_ffresp_recv: FFRespReceiver,
 
     ff_sender: FFReqSender,
 
-    content_state: LazyState<IFResp>,
+    content_state: LazyState<IFResp<String>, String>,
     content_scroll_state: ScrollbarState,
     content_tail: bool,
 
-    filter_state: LazyState<FFResp>,
+    filter_state: LazyState<FFResp, FilterLine>,
     filter_scroll_state: ScrollbarState,
     filter_tail: bool,
 
@@ -155,7 +159,7 @@ pub struct Tui {
 impl Tui {
     pub fn new(
         path: String,
-        ifreq_sender: FileReqSender<IFResp>,
+        ifreq_sender: FileReqSender<IFResp<String>>,
         ffreq_sender: FileReqSender<FFResp>,
         ff_sender: FFReqSender,
     ) -> Self {
@@ -353,6 +357,8 @@ impl Tui {
 
                         KeyCode::Char('/') => self.start_edit_filter(),
 
+                        KeyCode::Char('s') => self.sync_filter_to_content().await?,
+
                         _ => {}
                     },
                     // Showing the filter edit dialog.
@@ -387,6 +393,30 @@ impl Tui {
         }
 
         Ok(false)
+    }
+
+    async fn sync_filter_to_content(&mut self) -> Result<()> {
+        trace!("Sync filter to content");
+
+        if !self.filter_enabled {
+            trace!("No current filter, done.");
+            return Ok(());
+        };
+
+        let match_no = self.filter_state.view.current();
+        let filter_line = self.filter_state.view.get_line(match_no);
+
+        let Some(filter_line) = filter_line else {
+            warn!("Match not currently populated... ignoring: {}", match_no);
+            return Ok(());
+        };
+
+        let line_no = filter_line.line_no;
+
+        self.content_state.view.set_current(line_no).await?;
+        let _ = self.content_scroll_state.position(line_no);
+
+        Ok(())
     }
 
     async fn set_filter_spec(&mut self, filter_spec: FilterSpec) -> Result<()> {
