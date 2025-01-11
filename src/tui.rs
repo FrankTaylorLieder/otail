@@ -154,6 +154,9 @@ pub struct Tui {
 
     // Are we showing the filter edit modal?
     filter_edit: Option<FilterEditState>,
+
+    // Make content follow filter selection.
+    sync_filter_to_content: bool,
 }
 
 impl Tui {
@@ -212,6 +215,7 @@ impl Tui {
             content_fill: 7,
 
             filter_edit: None,
+            sync_filter_to_content: false,
         };
 
         s
@@ -358,6 +362,7 @@ impl Tui {
                         KeyCode::Char('/') => self.start_edit_filter(),
 
                         KeyCode::Char('s') => self.sync_filter_to_content().await?,
+                        KeyCode::Char('S') => self.toggle_sync_lock().await?,
 
                         _ => {}
                     },
@@ -393,6 +398,27 @@ impl Tui {
         }
 
         Ok(false)
+    }
+
+    async fn toggle_sync_lock(&mut self) -> Result<()> {
+        trace!(
+            "Toggling sync lock: current: {}",
+            self.sync_filter_to_content
+        );
+
+        self.sync_filter_to_content = !self.sync_filter_to_content;
+
+        self.auto_sync_if_needed().await?;
+
+        Ok(())
+    }
+
+    async fn auto_sync_if_needed(&mut self) -> Result<()> {
+        if self.sync_filter_to_content {
+            self.sync_filter_to_content().await?;
+        }
+
+        Ok(())
     }
 
     async fn sync_filter_to_content(&mut self) -> Result<()> {
@@ -444,6 +470,7 @@ impl Tui {
         } else {
             self.filter_state.view.set_current(i).await?;
             let _ = self.content_scroll_state.position(i);
+            self.auto_sync_if_needed().await?;
         }
 
         Ok(())
@@ -518,6 +545,10 @@ impl Tui {
         });
     }
 
+    fn draw_checkbox(label: &str, current: bool) -> Span<'_> {
+        Span::from(format!("{} {}", if current { "☑" } else { "☐" }, label))
+    }
+
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
         let [title_area, main_area] =
@@ -530,10 +561,7 @@ impl Tui {
         .areas(main_area);
 
         let filename = Span::from(format!("File: {}", &self.path)).italic();
-        let tail_status = Line::from(format!(
-            "{} Tail",
-            if self.content_tail { "☑" } else { "☐" }
-        ));
+        let tail_status = Tui::draw_checkbox("Tail", self.content_tail);
         let file_stats = Line::from(self.compute_file_stats())
             .reversed()
             .alignment(Alignment::Right);
@@ -559,16 +587,17 @@ impl Tui {
         self.render_scrollbar(frame, file_area);
 
         let filter_control_filter = Span::from(format!("Filter: {}", self.render_filter_spec()));
-        let filter_controls = Span::from(format!(
-            " {} Tail",
-            if self.filter_tail { "☑" } else { "☐" }
-        ));
+        let filter_controls = Line::from(vec![
+            Tui::draw_checkbox("Sync", self.sync_filter_to_content),
+            Span::from("  "),
+            Tui::draw_checkbox("Tail", self.filter_tail),
+        ]);
         let filter_control_stats = Line::from(self.compute_filter_stats())
             .reversed()
             .alignment(Alignment::Right);
         let filter_control_layout = Layout::horizontal([
             Constraint::Fill(1),
-            Constraint::Length(10),
+            Constraint::Length(20),
             Constraint::Length(30),
         ]);
         let [filter_control_filter_area, filter_control_tail_area, filter_control_tail_matches] =
