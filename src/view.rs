@@ -242,8 +242,28 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         self.start_point
     }
 
-    pub fn pan(&mut self, delta: isize) {
-        self.start_point = clamped_add(self.start_point, delta, 0, self.longest_line_length)
+    pub fn pan(&mut self, delta: isize, width: usize) {
+        let max = clamped_add(
+            self.longest_line_length,
+            (width as isize) * -1,
+            0,
+            self.longest_line_length,
+        );
+
+        self.start_point = clamped_add(self.start_point, delta, 0, max);
+    }
+
+    pub fn pan_start(&mut self) {
+        self.start_point = 0;
+    }
+
+    pub fn pan_end(&mut self, width: usize) {
+        self.start_point = clamped_add(
+            self.longest_line_length,
+            (width as isize) * -1,
+            0,
+            self.longest_line_length,
+        );
     }
 
     // Async methods... callable from the TUI event loop.

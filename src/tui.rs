@@ -48,6 +48,7 @@ struct LazyState<T, L> {
     view: View<T, L>,
 
     height_hint: usize,
+    width_hint: usize,
 
     cell_renders: u32,
 }
@@ -90,6 +91,7 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
         let width = inner.width;
 
         state.height_hint = height as usize;
+        state.width_hint = width as usize;
 
         let num_lines = state.view.get_stats().file_lines;
         let current = state.view.current();
@@ -153,6 +155,8 @@ pub struct Tui {
     current_window: bool,
     // Fill ratio for content pane... 1..9
     content_fill: usize,
+    // Margin for line numbers and carret
+    margin: usize,
 
     // Are we showing the filter edit modal?
     filter_edit: Option<FilterEditState>,
@@ -195,6 +199,7 @@ impl Tui {
             content_state: LazyState {
                 view: content_view,
                 height_hint: 0,
+                width_hint: 0,
                 cell_renders: 0,
             },
             content_scroll_state: ScrollbarState::new(0),
@@ -204,6 +209,7 @@ impl Tui {
             filter_state: LazyState {
                 view: filter_view,
                 height_hint: 0,
+                width_hint: 0,
                 cell_renders: 0,
             },
             filter_tail: false,
@@ -215,6 +221,7 @@ impl Tui {
 
             current_window: true,
             content_fill: 7,
+            margin: 7, // TODO: Resize base no file size
 
             filter_edit: None,
             sync_filter_to_content: false,
@@ -343,31 +350,36 @@ impl Tui {
             if key.kind == event::KeyEventKind::Press {
                 match &mut self.filter_edit {
                     // Showing the main window.
-                    None => match key.code {
-                        KeyCode::Char('q') => return Ok(true),
-                        KeyCode::Char('j') | KeyCode::Down => self.scroll(1).await?,
-                        KeyCode::Char('k') | KeyCode::Up => self.scroll(-1).await?,
-                        KeyCode::Char('d') => self.scroll(20).await?,
-                        KeyCode::Char('u') => self.scroll(-20).await?,
-                        KeyCode::Char(' ') | KeyCode::PageDown => self.scroll_page(1).await?,
-                        KeyCode::Backspace | KeyCode::PageUp => self.scroll_page(-1).await?,
-                        KeyCode::Char('g') => self.top().await?,
-                        KeyCode::Char('G') => self.bottom().await?,
+                    None => match (key.code, key.modifiers) {
+                        (KeyCode::Char('q'), _) => return Ok(true),
+                        (KeyCode::Char('j') | KeyCode::Down, _) => self.scroll(1).await?,
+                        (KeyCode::Char('k') | KeyCode::Up, _) => self.scroll(-1).await?,
+                        (KeyCode::Char('d'), _) => self.scroll(20).await?,
+                        (KeyCode::Char('u'), _) => self.scroll(-20).await?,
+                        (KeyCode::Char(' ') | KeyCode::PageDown, _) => self.scroll_page(1).await?,
+                        (KeyCode::Backspace | KeyCode::PageUp, _) => self.scroll_page(-1).await?,
+                        (KeyCode::Char('g'), _) => self.top().await?,
+                        (KeyCode::Char('G'), _) => self.bottom().await?,
 
-                        KeyCode::Char('h') => self.pan(-1).await?,
-                        KeyCode::Char('l') => self.pan(1).await?,
+                        (KeyCode::Char('H'), KeyModifiers::SHIFT) => self.pan(-20).await?,
+                        (KeyCode::Char('L'), KeyModifiers::SHIFT) => self.pan(20).await?,
+                        (KeyCode::Char('h'), _) => self.pan(-1).await?,
+                        (KeyCode::Char('l'), _) => self.pan(1).await?,
 
-                        KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1).await,
-                        KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1).await,
+                        (KeyCode::Char('^'), _) => self.pan_start().await?,
+                        (KeyCode::Char('$'), _) => self.pan_end().await?,
 
-                        KeyCode::Char('t') => self.toggle_tail().await?,
+                        (KeyCode::Char('=') | KeyCode::Char('+'), _) => self.resize(1).await,
+                        (KeyCode::Char('-') | KeyCode::Char('_'), _) => self.resize(-1).await,
 
-                        KeyCode::Tab => self.current_window = !self.current_window,
+                        (KeyCode::Char('t'), _) => self.toggle_tail().await?,
 
-                        KeyCode::Char('/') => self.start_edit_filter(),
+                        (KeyCode::Tab, _) => self.current_window = !self.current_window,
 
-                        KeyCode::Char('s') => self.sync_filter_to_content().await?,
-                        KeyCode::Char('S') => self.toggle_sync_lock().await?,
+                        (KeyCode::Char('/'), _) => self.start_edit_filter(),
+
+                        (KeyCode::Char('s'), _) => self.sync_filter_to_content().await?,
+                        (KeyCode::Char('S'), _) => self.toggle_sync_lock().await?,
 
                         _ => {}
                     },
@@ -533,14 +545,43 @@ impl Tui {
     }
 
     async fn pan(&mut self, delta: isize) -> Result<()> {
-        let i = if self.current_window {
-            self.content_state.view.pan(delta);
+        if self.current_window {
+            self.content_state
+                .view
+                .pan(delta, self.content_state.width_hint - self.margin);
         } else {
-            self.filter_state.view.pan(delta);
+            self.filter_state
+                .view
+                .pan(delta, self.content_state.width_hint - self.margin);
         };
 
         Ok(())
     }
+
+    async fn pan_start(&mut self) -> Result<()> {
+        if self.current_window {
+            self.content_state.view.pan_start();
+        } else {
+            self.filter_state.view.pan_start();
+        }
+
+        Ok(())
+    }
+
+    async fn pan_end(&mut self) -> Result<()> {
+        if self.current_window {
+            self.content_state
+                .view
+                .pan_end(self.content_state.width_hint - self.margin);
+        } else {
+            self.filter_state
+                .view
+                .pan_end(self.content_state.width_hint - self.margin);
+        }
+
+        Ok(())
+    }
+
     async fn toggle_tail(&mut self) -> Result<()> {
         if self.current_window {
             self.content_tail = !self.content_tail;
