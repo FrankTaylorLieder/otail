@@ -10,6 +10,7 @@ use ratatui::symbols::line;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::common::{clamped_add, LineContent};
 use crate::ifile::{FileReq, FileReqSender, FileResp, FileRespSender, IFResp};
 
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
@@ -37,6 +38,8 @@ pub struct View<T, L> {
 
     viewport: LinesSlice,
     current: usize,
+    start_point: usize,
+    longest_line_length: usize,
 
     ifile_req_sender: FileReqSender<T>,
     ifile_resp_sender: FileRespSender<T>,
@@ -68,14 +71,12 @@ impl LinesSlice {
     }
 }
 
-impl<L: Clone> LineCache<L> {
+impl<L: Clone + LineContent> LineCache<L> {
     pub fn reset(&mut self) -> Vec<usize> {
         self.lines = vec![None; self.range.num_lines];
 
         self.missing_lines()
     }
-
-    // TODO: Request missing lines
 
     // Set the viewport and report on this lines need to be fetched.
     pub fn set_viewport(&mut self, viewport: LinesSlice) -> Vec<usize> {
@@ -167,7 +168,7 @@ impl<L: Clone> LineCache<L> {
     }
 }
 
-impl<T: std::marker::Send + 'static, L: Clone + Default + std::fmt::Display> View<T, L> {
+impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L> {
     pub fn new(
         id: String,
         path: String,
@@ -180,6 +181,8 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + std::fmt::Display> Vie
 
             viewport: LinesSlice::default(),
             current: 0,
+            start_point: 0,
+            longest_line_length: 0,
 
             ifile_req_sender,
             ifile_resp_sender,
@@ -233,6 +236,14 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + std::fmt::Display> Vie
 
     pub fn range(&self) -> Range<usize> {
         self.viewport.range()
+    }
+
+    pub fn get_start_point(&self) -> usize {
+        self.start_point
+    }
+
+    pub fn pan(&mut self, delta: isize) {
+        self.start_point = clamped_add(self.start_point, delta, 0, self.longest_line_length)
     }
 
     // Async methods... callable from the TUI event loop.
@@ -336,6 +347,18 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + std::fmt::Display> Vie
         let missing = self.line_cache.set_viewport(viewport.clone());
         self.viewport = viewport;
 
+        // Recalculate the longest line
+        self.longest_line_length = 0;
+        for l in &self.line_cache.lines {
+            if let Some(l) = l {
+                let len = l.len();
+                if len > self.longest_line_length {
+                    self.longest_line_length = len;
+                }
+            }
+        }
+        trace!("New longest known line: {}", self.longest_line_length);
+
         // TODO: Cancel missing lines no longer needed.
 
         self.request_missing(missing).await?;
@@ -369,16 +392,22 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + std::fmt::Display> Vie
                 partial,
             } => {
                 debug!(
-                    "{}: View line: {line_no} {} => {line_content}",
+                    "{}: View line: {line_no} {} => {}",
                     self.id,
-                    if partial { "PARTIAL" } else { "COMPLETE" }
+                    if partial { "PARTIAL" } else { "COMPLETE" },
+                    line_content.render(),
                 );
 
+                let len = line_content.len();
                 if self
                     .line_cache
                     .set_line(line_no, line_content, self.tailing)
                 {
                     trace!("Set line {} for {}", line_no, self.id);
+                    if len > self.longest_line_length {
+                        trace!("New longest line: {}", len);
+                        self.longest_line_length = len;
+                    }
                 }
 
                 if self.tailing {

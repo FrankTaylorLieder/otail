@@ -37,7 +37,7 @@ use ratatui::{
 };
 
 use crate::{
-    common::{CHANNEL_BUFFER, MS_PER_FRAME},
+    common::{clamped_add, LineContent, CHANNEL_BUFFER, MS_PER_FRAME},
     ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterLine, FilterMode, FilterSpec},
     ifile::{FileReqSender, FileRespReceiver, IFResp},
     view::{LinesSlice, UpdateAction, View},
@@ -55,14 +55,16 @@ struct LazyState<T, L> {
 #[derive(Debug)]
 struct LazyList<'a, T, L> {
     block: Option<Block<'a>>,
+    start_point: usize,
     _phantom_resp: PhantomData<T>,
     _phantom_line: PhantomData<L>,
 }
 
 impl<'a, T, L> LazyList<'a, T, L> {
-    pub fn new() -> Self {
+    pub fn new(start_point: usize) -> Self {
         Self {
             block: None,
+            start_point,
 
             _phantom_resp: PhantomData,
             _phantom_line: PhantomData,
@@ -75,7 +77,7 @@ impl<'a, T, L> LazyList<'a, T, L> {
     }
 }
 
-impl<'a, T: std::marker::Send + 'static, L: Clone + Default + Display> StatefulWidget
+impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> StatefulWidget
     for LazyList<'a, T, L>
 {
     type State = LazyState<T, L>;
@@ -100,7 +102,7 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + Display> StatefulW
             let maybe_l = state.view.get_line(i);
 
             let l = match maybe_l {
-                Some(l) => format!("{}", l),
+                Some(l) => l.render(),
                 None => "...".to_owned(),
             };
 
@@ -111,7 +113,7 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + Display> StatefulW
                 if i == current { ">" } else { " " },
                 i,
                 w = width as usize,
-                l = l
+                l = l.get(self.start_point..).unwrap_or(""),
             )));
 
             state.cell_renders += 1;
@@ -352,6 +354,9 @@ impl Tui {
                         KeyCode::Char('g') => self.top().await?,
                         KeyCode::Char('G') => self.bottom().await?,
 
+                        KeyCode::Char('h') => self.pan(-1).await?,
+                        KeyCode::Char('l') => self.pan(1).await?,
+
                         KeyCode::Char('=') | KeyCode::Char('+') => self.resize(1).await,
                         KeyCode::Char('-') | KeyCode::Char('_') => self.resize(-1).await,
 
@@ -527,6 +532,15 @@ impl Tui {
         self.content_fill = clamped_add(self.content_fill, delta, 1, 9);
     }
 
+    async fn pan(&mut self, delta: isize) -> Result<()> {
+        let i = if self.current_window {
+            self.content_state.view.pan(delta);
+        } else {
+            self.filter_state.view.pan(delta);
+        };
+
+        Ok(())
+    }
     async fn toggle_tail(&mut self) -> Result<()> {
         if self.current_window {
             self.content_tail = !self.content_tail;
@@ -578,7 +592,7 @@ impl Tui {
 
         let widths = [Constraint::Length(5), Constraint::Fill(1)];
 
-        let content = LazyList::new().block(
+        let content = LazyList::new(self.content_state.view.get_start_point()).block(
             Block::bordered()
                 .border_set(self.selected_border(self.current_window))
                 .title("Content"),
@@ -606,7 +620,7 @@ impl Tui {
         frame.render_widget(filter_controls, filter_control_tail_area);
         frame.render_widget(filter_control_stats, filter_control_tail_matches);
 
-        let filter_content = LazyList::new().block(
+        let filter_content = LazyList::new(self.filter_state.view.get_start_point()).block(
             Block::bordered()
                 .border_set(self.selected_border(!self.current_window))
                 .title("Filtered"),
@@ -633,10 +647,10 @@ impl Tui {
             let inner_area = surrounding_block.inner(area);
 
             let vertical = Layout::vertical([
-                Constraint::Min(2),
-                Constraint::Min(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
                 Constraint::Fill(10),
-                Constraint::Min(3),
+                Constraint::Length(1),
             ]);
             let [instructions_area, enabled_area, spec_area, mode_area] =
                 vertical.areas(inner_area);
@@ -721,16 +735,5 @@ impl Tui {
         } else {
             "(None)".to_owned()
         }
-    }
-}
-
-fn clamped_add(a: usize, b: isize, min: usize, max: usize) -> usize {
-    let v = a as i64 + b as i64;
-    if v > max as i64 {
-        max
-    } else if v < min as i64 {
-        min
-    } else {
-        v as usize
     }
 }

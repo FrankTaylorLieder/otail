@@ -8,7 +8,7 @@ use regex::Regex;
 use tokio::select;
 use tokio::sync::mpsc;
 
-use crate::common::{CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE};
+use crate::common::{LineContent, CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE};
 use crate::ifile::{
     FileReq, FileReqReceiver, FileReqSender, FileResp, FileRespReceiver, FileRespSender, IFResp,
 };
@@ -94,9 +94,13 @@ pub struct FilterLine {
     pub line: String,
 }
 
-impl Display for FilterLine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.line)
+impl LineContent for FilterLine {
+    fn len(&self) -> usize {
+        self.line.len()
+    }
+
+    fn render(&self) -> String {
+        self.line.clone()
     }
 }
 
