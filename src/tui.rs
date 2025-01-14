@@ -332,6 +332,8 @@ impl Tui {
                                     self.filter_state.view.reset().await?;
                                 }
                             }
+
+                            self.auto_sync_if_needed().await?;
                         }
                     }
                 }
@@ -450,7 +452,7 @@ impl Tui {
         let filter_line = self.filter_state.view.get_line(match_no);
 
         let Some(filter_line) = filter_line else {
-            warn!("Match not currently populated... ignoring: {}", match_no);
+            trace!("Match line not yet populated, cannot sync yet.");
             return Ok(());
         };
 

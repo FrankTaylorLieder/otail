@@ -72,6 +72,10 @@ impl LinesSlice {
 }
 
 impl<L: Clone + LineContent> LineCache<L> {
+    pub fn set_range(&mut self, range: LinesSlice) {
+        self.range = range;
+    }
+
     pub fn reset(&mut self) -> Vec<usize> {
         self.lines = vec![None; self.range.num_lines];
 
@@ -209,11 +213,18 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
 
     pub async fn reset(&mut self) -> Result<()> {
         trace!("Reset view");
+
+        self.current = 0;
+        self.start_point = 0;
+        self.set_viewport(LinesSlice {
+            first_line: 0,
+            num_lines: self.get_viewport_height(),
+        })
+        .await?;
+
         self.stats.file_lines = 0;
         self.stats.file_bytes = 0;
         let missing = self.line_cache.reset();
-
-        trace!("XXX Missing lines {:?}", missing);
 
         self.request_missing(missing).await?;
 
@@ -384,6 +395,10 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         self.request_missing(missing).await?;
 
         Ok(())
+    }
+
+    fn get_viewport_height(&self) -> usize {
+        self.viewport.num_lines
     }
 
     async fn request_missing(&self, missing: Vec<usize>) -> Result<()> {

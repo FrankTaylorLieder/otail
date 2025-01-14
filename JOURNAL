@@ -263,9 +263,9 @@ Install: `cargo install --path .`
 
 Usability issues:
 
-- CURRENT See the end of long lines.
-  - Scroll left/right
-  - Toggle wrapping
+- DONE See the end of long lines.
+  - DONE Scroll left/right
+  - FUTURE Toggle wrapping
 - DONE Syncing filtered to content view line selection
   - DONE Press 's' to sync one off.
   - DONE Provide a locked mode to always sync
@@ -274,4 +274,6 @@ Usability issues:
 - DONE Tailing on filter
 - Scrolling whilst tailing... disable tailing when the viewport changes.
 - DONE G on Filter view takes you past the last line... viewport set too large?
+- DONE Reset current line and pan when changing filter spec
+- Sync when scrolling the filter view does not work
 
