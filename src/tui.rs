@@ -633,15 +633,15 @@ impl Tui {
         frame.render_widget(tail_status, tail_area);
         frame.render_widget(file_stats, stats_area);
 
-        let widths = [Constraint::Length(5), Constraint::Fill(1)];
-
+        let content_layout = Layout::horizontal([Constraint::Min(1), Constraint::Length(1)]);
+        let [content_content_area, content_scroll_area] = content_layout.areas(file_area);
         let content = LazyList::new(self.content_state.view.get_start_point()).block(
             Block::bordered()
                 .border_set(self.selected_border(self.current_window))
                 .title("Content"),
         );
-        frame.render_stateful_widget(content, file_area, &mut self.content_state);
-        self.render_scrollbar(frame, file_area);
+        frame.render_stateful_widget(content, content_content_area, &mut self.content_state);
+        self.render_scrollbar(frame, content_scroll_area);
 
         let filter_control_filter = Span::from(format!("Filter: {}", self.render_filter_spec()));
         let filter_controls = Line::from(vec![
@@ -762,11 +762,11 @@ impl Tui {
         frame.render_stateful_widget(
             Scrollbar::default()
                 .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None),
+                .begin_symbol(Some("B"))
+                .end_symbol(Some("E")),
             area.inner(Margin {
-                vertical: 1,
-                horizontal: 1,
+                vertical: 0,
+                horizontal: 0,
             }),
             &mut self.content_scroll_state,
         );
