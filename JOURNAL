@@ -277,7 +277,9 @@ Usability issues:
 - DONE Reset current line and pan when changing filter spec
 - DONE Sync when scrolling the filter view does not work
 - DONE Where is the scrollbar?
-- Fetch data from file, not in-memory cache.
+- DONE Fetch data from file, not in-memory cache.
 - DONE Adjust the margin size based on the content length.
+- Publish v0.1 on crates.io - rename to ttail
+
 
 

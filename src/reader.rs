@@ -11,6 +11,7 @@ use tokio::sync::mpsc::{self, Receiver};
 pub enum ReaderUpdate {
     Line {
         line_content: String,
+        offset: u64,
         line_bytes: usize,
         partial: bool,
         file_bytes: usize,
@@ -40,10 +41,12 @@ impl Reader {
         let mut line_bytes = 0;
         let mut partial = false;
         let mut file_lines: usize = 0;
+        let mut line_offset = 0;
         loop {
             if !partial {
                 line.clear();
                 line_bytes = 0;
+                line_offset = pos;
             }
 
             // TODO: Remove unwrap
@@ -69,6 +72,7 @@ impl Reader {
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.
                     line_content: line.trim_end().to_owned(),
+                    offset: line_offset,
                     line_bytes,
                     partial,
                     file_bytes: pos as usize,
@@ -126,6 +130,7 @@ impl Reader {
                         if !partial {
                             line.clear();
                             line_bytes = 0;
+                            line_offset = pos;
                         }
 
                         // TODO: Remove unwrap
@@ -153,6 +158,7 @@ impl Reader {
                             .send(ReaderUpdate::Line {
                                 // Deliver the whole line each time we send the line.
                                 line_content: line.clone(),
+                                offset: line_offset,
                                 line_bytes,
                                 partial,
                                 file_bytes: pos as usize,

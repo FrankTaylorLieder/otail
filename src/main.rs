@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("rtail starting: {:?}", args);
 
-    let mut ifile = IFile::new(&args.path);
+    let mut ifile = IFile::new(&args.path)?;
     let mut ffile = FFile::new("ff".to_owned(), &args.path, ifile.get_view_sender());
 
     let tui = Tui::new(

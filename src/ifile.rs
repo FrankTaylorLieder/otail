@@ -1,10 +1,11 @@
 use anyhow::Result;
 use log::{debug, error, info, trace, warn};
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Seek};
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{thread, usize};
-use tokio::fs::File;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
@@ -62,7 +63,7 @@ pub enum IFResp<L> {
 
 #[derive(Debug)]
 struct SLine {
-    content: String,
+    offset: u64,
     line_no: usize,
     line_chars: usize,
     line_bytes: usize,
@@ -78,29 +79,44 @@ struct Client<L> {
 }
 
 #[derive(Debug)]
+struct Clients {
+    clients: HashMap<String, Client<String>>,
+}
+
+#[derive(Debug)]
+struct BackingFile {
+    file: BufReader<File>,
+}
+
+#[derive(Debug)]
 pub struct IFile {
     view_receiver: FileReqReceiver<IFResp<String>>,
     view_sender: FileReqSender<IFResp<String>>,
     reader_receiver: ReaderUpdateReceiver,
     reader_sender: ReaderUpdateSender,
     path: PathBuf,
+    backing_file: BackingFile,
     // TODO: Remove storing lines... use file reads instead.
     lines: Vec<SLine>,
     file_lines: usize,
     file_bytes: usize,
-    clients: HashMap<String, Client<String>>,
+    clients: Clients,
 }
 
 impl IFile {
-    pub fn new(path: &str) -> IFile {
+    pub fn new(path: &str) -> Result<IFile> {
         let mut pb = PathBuf::new();
         pb.push(path);
+
+        let raw_file = File::open(pb.clone())?;
+        let file = BufReader::new(raw_file);
 
         let (view_sender, view_receiver) = mpsc::channel(CHANNEL_BUFFER);
         let (reader_sender, reader_receiver) = mpsc::channel(CHANNEL_BUFFER);
 
-        IFile {
+        Ok(IFile {
             path: pb,
+            backing_file: BackingFile { file },
             view_receiver,
             view_sender,
             reader_receiver,
@@ -108,8 +124,10 @@ impl IFile {
             lines: vec![],
             file_lines: 0,
             file_bytes: 0,
-            clients: HashMap::new(),
-        }
+            clients: Clients {
+                clients: HashMap::new(),
+            },
+        })
     }
 
     fn run_reader(&mut self, cs: ReaderUpdateSender) {
@@ -176,6 +194,7 @@ impl IFile {
         match update {
             ReaderUpdate::Line {
                 line_content,
+                offset,
                 line_bytes,
                 partial,
                 file_bytes,
@@ -185,7 +204,7 @@ impl IFile {
                 let updated_line_no = self.file_lines;
                 if partial {
                     self.lines[updated_line_no] = SLine {
-                        content: line_content.clone(),
+                        offset,
                         line_no: updated_line_no,
                         line_chars: line_content.len(),
                         line_bytes,
@@ -193,7 +212,7 @@ impl IFile {
                     }
                 } else {
                     self.lines.push(SLine {
-                        content: line_content.clone(),
+                        offset,
                         line_no: updated_line_no,
                         line_chars: line_content.len(),
                         line_bytes,
@@ -211,7 +230,7 @@ impl IFile {
                     line_chars
                 );
 
-                for (id, client) in self.clients.iter_mut() {
+                for (id, client) in self.clients.clients.iter_mut() {
                     trace!(
                         "Sending update to client: {} - line {}",
                         id,
@@ -249,7 +268,7 @@ impl IFile {
                 self.lines = vec![];
                 self.file_bytes = 0;
 
-                for (id, client) in self.clients.iter_mut() {
+                for (id, client) in self.clients.clients.iter_mut() {
                     trace!("Sending truncate");
                     // TODO: Deal with unwrap
                     client.interested = HashSet::new();
@@ -261,7 +280,7 @@ impl IFile {
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
 
-                for (id, updater) in self.clients.iter_mut() {
+                for (id, updater) in self.clients.clients.iter_mut() {
                     trace!("Forwarding error");
                     // TODO: Deal with unwrap
                     updater.interested = HashSet::new();
@@ -281,12 +300,14 @@ impl IFile {
         match cmd {
             FileReq::GetLine { id, line_no } => {
                 trace!("Client {} requested line {}", id, line_no);
-                let Some(client) = self.clients.get_mut(&id) else {
+
+                let clients = &mut self.clients;
+                let Some(client) = clients.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
                     return Ok(());
                 };
 
-                let sl = self.lines.get(line_no);
+                let sl = self.lines.get_mut(line_no);
                 match sl {
                     None => {
                         trace!("Registering interest in: {} / {:?}", id, line_no);
@@ -295,13 +316,16 @@ impl IFile {
                     }
                     Some(sl) => {
                         // TODO: Fetch the data from the file rather than locally stored data.
+                        let backing_file = &mut self.backing_file;
+                        let line_content = backing_file.read_line(sl)?.clone();
+
                         trace!("Returning line: {}", line_no);
                         client
                             .channel
                             .send(IFResp::ViewUpdate {
                                 update: FileResp::Line {
                                     line_no,
-                                    line_content: sl.content.clone(),
+                                    line_content,
                                     partial: sl.partial,
                                 },
                             })
@@ -312,7 +336,7 @@ impl IFile {
             }
             FileReq::CancelLine { id, line_no } => {
                 trace!("Cancel line: {} / {:?}", id, line_no);
-                let Some(client) = self.clients.get_mut(&id) else {
+                let Some(client) = self.clients.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
                     return Ok(());
                 };
@@ -324,7 +348,7 @@ impl IFile {
             }
             FileReq::RegisterClient { id, client_sender } => {
                 trace!("Registering client: {}", id);
-                self.clients.insert(
+                self.clients.clients.insert(
                     id.clone(),
                     Client {
                         id,
@@ -348,7 +372,8 @@ impl IFile {
             }
             FileReq::EnableTailing { id, last_seen_line } => {
                 trace!("Enable tailing: {}", id);
-                let Some(client) = self.clients.get_mut(&id) else {
+                let clients = &mut self.clients;
+                let Some(client) = clients.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
                     return Ok(());
                 };
@@ -362,13 +387,16 @@ impl IFile {
                         continue;
                     };
 
+                    let backing_file = &mut self.backing_file;
+                    let line_content = backing_file.read_line(l)?.clone();
+
                     trace!("Forwaring missing line: {}", i);
                     client
                         .channel
                         .send(IFResp::ViewUpdate {
                             update: FileResp::Line {
                                 line_no: i,
-                                line_content: l.content.clone(),
+                                line_content,
                                 partial: l.partial,
                             },
                         })
@@ -379,7 +407,7 @@ impl IFile {
             FileReq::DisableTailing { id } => {
                 trace!("Disable tailing: {}", id);
 
-                let Some(client) = self.clients.get_mut(&id) else {
+                let Some(client) = self.clients.clients.get_mut(&id) else {
                     warn!("Unknown client, ignoring request: {}", id);
                     return Ok(());
                 };
@@ -389,5 +417,24 @@ impl IFile {
                 Ok(())
             }
         }
+    }
+}
+
+impl BackingFile {
+    fn read_line(&mut self, sl: &SLine) -> Result<String> {
+        self.file.seek(io::SeekFrom::Start(sl.offset))?;
+
+        let mut line = String::new();
+        self.file.read_line(&mut line)?;
+
+        // Remove trailing newline if present
+        if line.ends_with('\n') {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+
+        Ok(line)
     }
 }
