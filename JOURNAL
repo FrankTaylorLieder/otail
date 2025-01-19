@@ -281,12 +281,13 @@ Usability issues:
 - DONE Adjust the margin size based on the content length.
 - Bold the current line
 - Tidy up corners
-  - unwraps
-  - types of file byte offsets -> u64
-  - Validation of path before starting up.
+  - DONE unwraps
+  - DONE types of file byte offsets -> u64
+  - DONE Validation of path before starting up.
   - Handling truncation
 - Publish v0.1 on crates.io - rename to ttail
 
 Future enhancements:
 - Share line data using Arc<String> - reduce copying
+- Move around views by %
 

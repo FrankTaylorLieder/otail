@@ -1,8 +1,8 @@
-use std::io::stdout;
+use std::{fs::File, io::stdout};
 
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
-use log::info;
+use log::{error, info};
 use rtail::ffile::FFile;
 use rtail::ifile::IFile;
 use rtail::panic::init_panic_handler;
@@ -37,6 +37,13 @@ async fn main() -> anyhow::Result<()> {
 
     info!("rtail starting: {:?}", args);
 
+    // Quickly check the file before starting... can produce a better error.
+    if let Err(e) = File::open(&args.path) {
+        let message = format!("Failed to open: {} - {:?}", &args.path, e);
+        error!("{}", message);
+        eprintln!("{}", message);
+        return Ok(());
+    }
     let mut ifile = IFile::new(&args.path)?;
     let mut ffile = FFile::new("ff".to_owned(), &args.path, ifile.get_view_sender());
 

@@ -40,7 +40,7 @@ use crate::{
     common::{self, clamped_add, LineContent, CHANNEL_BUFFER, MS_PER_FRAME},
     ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterLine, FilterMode, FilterSpec},
     ifile::{FileReqSender, FileRespReceiver, IFResp},
-    view::{LinesSlice, UpdateAction, View},
+    view::View,
 };
 
 const MARGIN_EXTRAS: usize = 1; // Allow space between line number of line

@@ -44,12 +44,6 @@ pub struct View<T, L> {
     tailing: bool,
 }
 
-#[derive(Debug)]
-pub enum UpdateAction {
-    Truncated,
-    Error { msg: String },
-}
-
 impl LinesSlice {
     pub fn range(&self) -> Range<usize> {
         self.first_line..(self.first_line + self.num_lines)

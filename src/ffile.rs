@@ -84,6 +84,21 @@ struct FilterState {
     next_line_to_request: LineNo,
 }
 
+impl FilterState {
+    fn make(filter_spec: FilterSpec) -> Result<Self> {
+        let filter_re = Regex::new(&filter_spec.filter)?;
+        Ok(FilterState {
+            filter_spec,
+            filter_re,
+            matches: Vec::new(),
+            line_to_match: HashMap::new(),
+            num_matches: 0,
+            next_line_expected: 0,
+            next_line_to_request: 0,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FilterLine {
     pub line_no: usize,
@@ -220,12 +235,7 @@ impl FFile {
 
                 let Some(filter_spec) = filter_spec else {
                     trace!("Removing filter");
-                    self.filter_state = None;
-
-                    for (_, client) in self.clients.iter() {
-                        client.channel.send(FFResp::Clear).await?;
-                    }
-                    return Ok(());
+                    return self.set_filter_state(None).await;
                 };
 
                 if let Some(filter_state) = &self.filter_state {
@@ -235,27 +245,23 @@ impl FFile {
                     }
                 }
 
-                let filter_re = Regex::new(&filter_spec.filter)?;
-
-                self.filter_state = Some(FilterState {
-                    filter_spec,
-                    filter_re,
-                    matches: Vec::new(),
-                    line_to_match: HashMap::new(),
-                    num_matches: 0,
-                    next_line_expected: 0,
-                    next_line_to_request: 0,
-                });
-
-                for (_, client) in self.clients.iter() {
-                    client.channel.send(FFResp::Clear).await?;
-                }
-
-                self.start_spooling().await?;
-
-                Ok(())
+                self.set_filter_state(Some(FilterState::make(filter_spec)?))
+                    .await
             }
         }
+    }
+
+    async fn set_filter_state(&mut self, filter_state: Option<FilterState>) -> Result<()> {
+        self.filter_state = filter_state;
+
+        for (_, client) in self.clients.iter() {
+            client.channel.send(FFResp::Clear).await?;
+        }
+
+        if self.filter_state.is_some() {
+            self.start_spooling().await?;
+        }
+        return Ok(());
     }
 
     async fn handle_client_command(&mut self, cmd: FileReq<FFResp>) -> Result<()> {
@@ -455,12 +461,8 @@ impl FFile {
             let match_no = filter_state.num_matches;
             filter_state.num_matches += 1;
 
-            for (_, client) in self.clients.iter_mut() {
-                trace!(
-                    "Sending stats update to: {} - match {}",
-                    client.id,
-                    match_no
-                );
+            for (id, client) in self.clients.iter_mut() {
+                trace!("Sending stats update to: {} - match {}", id, match_no);
                 client
                     .channel
                     .send(FFResp::ViewUpdate {
@@ -533,8 +535,8 @@ impl FFile {
                         return Ok(());
                     };
 
-                    for (_, client) in self.clients.iter() {
-                        trace!("Forwarding matched filter line: {}", match_no);
+                    for (id, client) in self.clients.iter() {
+                        trace!("Forwarding matched filter line: {} - {}", id, match_no);
                         client
                             .channel
                             .send(FFResp::ViewUpdate {
@@ -552,6 +554,15 @@ impl FFile {
                 } else {
                     self.next_spooling(line_no, line_content, partial).await?;
                 }
+            }
+            IFResp::Truncated => {
+                let Some(filter_state) = &mut self.filter_state else {
+                    // No current filter, ignore truncation.
+                    trace!("Ignoring truncation, no current filter.");
+                    return Ok(());
+                };
+
+                self.filter_state = Some(FilterState::make(filter_state.filter_spec.clone())?);
             }
             _ => {
                 trace!("Ignoring unimportant message: {:?}", update);

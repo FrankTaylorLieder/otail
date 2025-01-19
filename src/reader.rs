@@ -32,11 +32,11 @@ impl Reader {
     pub async fn run(path: PathBuf, sender: ReaderUpdateSender) -> Result<()> {
         let metadata_file = File::open(&path)?;
         let mut br = BufReader::new(File::open(&path)?);
-        let mut pos = 0;
 
         trace!("Opened file: {:?}", path);
 
         // Start by spooling the file
+        let mut pos = 0;
         let mut line = String::new();
         let mut line_bytes = 0;
         let mut partial = false;
@@ -97,6 +97,9 @@ impl Reader {
                         line_bytes = 0;
                         partial = false;
                         line_offset = 0;
+                        pos = 0;
+
+                        br = BufReader::new(File::open(&path)?);
 
                         // TODO: Test tuncation... does this properly continue reading? Or do we
                         // need to restart spooling?

@@ -184,7 +184,7 @@ impl IFile {
         Ok(())
     }
 
-    async fn handle_reader_update(&mut self, update: ReaderUpdate) -> Result<()> {
+    async fn handle_reader_update(&mut self, update: ReaderUpdate) -> Result<bool> {
         match update {
             ReaderUpdate::Line {
                 line_content,
@@ -249,7 +249,7 @@ impl IFile {
                             .await?;
                     }
                 }
-                Ok(())
+                Ok(false)
             }
             ReaderUpdate::Truncated => {
                 trace!("File truncated... resetting ifile");
@@ -262,7 +262,7 @@ impl IFile {
                     client.interested = HashSet::new();
                     client.channel.send(IFResp::Truncated).await?;
                 }
-                Ok(())
+                Ok(true)
             }
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
@@ -277,7 +277,7 @@ impl IFile {
                         })
                         .await?;
                 }
-                Ok(())
+                Ok(false)
             }
         }
     }
