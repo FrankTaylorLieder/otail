@@ -47,7 +47,7 @@ const MARGIN_EXTRAS: usize = 1; // Allow space between line number of line
 
 #[derive(Debug)]
 struct LazyState<T, L> {
-    view: View<T, L>,
+    pub view: View<T, L>,
 
     pub height_hint: usize,
     pub width_hint: usize,
@@ -259,16 +259,28 @@ impl Tui {
         let mut dirty = true;
 
         while !should_quit {
-            // Let the states know the current file length to ensure margin layout
-            self.content_state.content_num_lines = self.content_state.view.get_stats().file_lines;
-            self.filter_state.content_num_lines = self.content_state.content_num_lines;
-
             if can_render && dirty {
+                // Let the states know the current file length to ensure margin layout
+                let content_stats = self.content_state.view.get_stats();
+                self.content_state.content_num_lines = content_stats.file_lines;
+                self.filter_state.content_num_lines = self.content_state.content_num_lines;
+
+                // Sync the content/viewport size for scrollbars
+                self.content_scroll_state = self
+                    .content_scroll_state
+                    .content_length(content_stats.file_lines)
+                    .viewport_content_length(self.content_state.view.get_viewport_height());
+                self.filter_scroll_state = self
+                    .filter_scroll_state
+                    .content_length(self.filter_state.view.get_stats().file_lines)
+                    .viewport_content_length(self.filter_state.view.get_viewport_height());
+
                 trace!("Draw!");
                 terminal.draw(|frame| self.draw(frame))?;
                 can_render = false;
                 dirty = false;
 
+                // After render, sync the window sizes back to the view.
                 self.content_state
                     .view
                     .set_height(self.content_state.height_hint)
@@ -475,7 +487,7 @@ impl Tui {
         let line_no = filter_line.line_no;
 
         self.content_state.view.set_current(line_no).await?;
-        let _ = self.content_scroll_state.position(line_no);
+        self.content_scroll_state = self.content_scroll_state.position(line_no);
 
         Ok(())
     }
@@ -501,10 +513,10 @@ impl Tui {
     async fn place(&mut self, i: usize) -> Result<()> {
         if self.current_window {
             self.content_state.view.set_current(i).await?;
-            let _ = self.content_scroll_state.position(i);
+            self.content_scroll_state = self.content_scroll_state.position(i);
         } else {
             self.filter_state.view.set_current(i).await?;
-            let _ = self.content_scroll_state.position(i);
+            self.filter_scroll_state = self.filter_scroll_state.position(i);
             self.auto_sync_if_needed().await?;
         }
 
@@ -659,7 +671,17 @@ impl Tui {
                 .title("Content"),
         );
         frame.render_stateful_widget(content, content_content_area, &mut self.content_state);
-        self.render_scrollbar(frame, content_scroll_area);
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None),
+            content_content_area.inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut self.content_scroll_state,
+        );
 
         let filter_control_filter = Span::from(format!("Filter: {}", self.render_filter_spec()));
         let filter_controls = Line::from(vec![
@@ -774,20 +796,6 @@ impl Tui {
             "{} matches",
             stats.file_lines.to_formatted_string(&Locale::en)
         )
-    }
-
-    fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
-        frame.render_stateful_widget(
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("B"))
-                .end_symbol(Some("E")),
-            area.inner(Margin {
-                vertical: 0,
-                horizontal: 0,
-            }),
-            &mut self.content_scroll_state,
-        );
     }
 
     fn render_filter_spec(&self) -> String {

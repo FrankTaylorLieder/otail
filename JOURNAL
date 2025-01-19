@@ -276,8 +276,8 @@ Usability issues:
 - DONE G on Filter view takes you past the last line... viewport set too large?
 - DONE Reset current line and pan when changing filter spec
 - DONE Sync when scrolling the filter view does not work
-- PROGRESSING Where is the scrollbar?
+- DONE Where is the scrollbar?
 - Fetch data from file, not in-memory cache.
-- Adjust the margin size based on the content length.
+- DONE Adjust the margin size based on the content length.
 
 

@@ -397,7 +397,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         Ok(())
     }
 
-    fn get_viewport_height(&self) -> usize {
+    pub fn get_viewport_height(&self) -> usize {
         self.viewport.num_lines
     }
 
