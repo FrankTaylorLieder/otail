@@ -284,7 +284,7 @@ Usability issues:
   - DONE unwraps
   - DONE types of file byte offsets -> u64
   - DONE Validation of path before starting up.
-  - Handling truncation
+  - DONE Handling truncation
 - Publish v0.1 on crates.io - rename to ttail
 
 Future enhancements:

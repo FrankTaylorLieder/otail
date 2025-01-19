@@ -473,7 +473,7 @@ impl FFile {
                     })
                     .await?;
 
-                if client.interested.remove(&match_no) {
+                if client.interested.remove(&match_no) || client.tailing {
                     trace!(
                         "Sending match to client: {} - match {}",
                         client.id,
@@ -530,7 +530,7 @@ impl FFile {
                 if line_no < filter_state.next_line_expected {
                     let Some(match_no) = filter_state.line_to_match.remove(&line_no) else {
                         trace!(
-                            "Line delivered without a corresponding waiting match: {}",
+                            "Line delivered without a coresponding waiting match: {}",
                             line_no
                         );
                         return Ok(());

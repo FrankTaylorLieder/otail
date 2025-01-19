@@ -34,8 +34,8 @@ pub struct View<T, L> {
     start_point: usize,
     longest_line_length: usize,
 
-    ifile_req_sender: FileReqSender<T>,
-    ifile_resp_sender: FileRespSender<T>,
+    file_req_sender: FileReqSender<T>,
+    file_resp_sender: FileRespSender<T>,
 
     stats: Stats,
 
@@ -157,8 +157,8 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
             start_point: 0,
             longest_line_length: 0,
 
-            ifile_req_sender,
-            ifile_resp_sender,
+            file_req_sender: ifile_req_sender,
+            file_resp_sender: ifile_resp_sender,
 
             stats: Stats::default(),
 
@@ -169,10 +169,10 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
     }
 
     pub async fn init(&self) -> Result<()> {
-        self.ifile_req_sender
+        self.file_req_sender
             .send(FileReq::RegisterClient {
                 id: self.id.clone(),
-                client_sender: self.ifile_resp_sender.clone(),
+                client_sender: self.file_resp_sender.clone(),
             })
             .await?;
 
@@ -251,7 +251,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         self.tailing = tail;
 
         if !tail {
-            self.ifile_req_sender
+            self.file_req_sender
                 .send(FileReq::DisableTailing {
                     id: self.id.clone(),
                 })
@@ -263,7 +263,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         let last_line = common::clamped_sub(self.get_stats().file_lines, 1);
         self.set_current(last_line).await?;
 
-        self.ifile_req_sender
+        self.file_req_sender
             .send(FileReq::EnableTailing {
                 id: self.id.clone(),
                 last_seen_line: last_line,
@@ -377,7 +377,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
                 self.id,
                 line_no
             );
-            self.ifile_req_sender
+            self.file_req_sender
                 .send(FileReq::GetLine {
                     id: self.id.clone(),
                     line_no,
