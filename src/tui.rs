@@ -37,18 +37,22 @@ use ratatui::{
 };
 
 use crate::{
-    common::{clamped_add, LineContent, CHANNEL_BUFFER, MS_PER_FRAME},
+    common::{self, clamped_add, LineContent, CHANNEL_BUFFER, MS_PER_FRAME},
     ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterLine, FilterMode, FilterSpec},
     ifile::{FileReqSender, FileRespReceiver, IFResp},
     view::{LinesSlice, UpdateAction, View},
 };
 
+const MARGIN_EXTRAS: usize = 1; // Allow space between line number of line
+
 #[derive(Debug)]
 struct LazyState<T, L> {
     view: View<T, L>,
 
-    height_hint: usize,
-    width_hint: usize,
+    pub height_hint: usize,
+    pub width_hint: usize,
+
+    pub content_num_lines: usize,
 
     cell_renders: u32,
 }
@@ -94,7 +98,10 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
         state.width_hint = width as usize;
 
         let num_lines = state.view.get_stats().file_lines;
+
         let current = state.view.current();
+
+        let line_no_width = common::count_digits(state.content_num_lines) + MARGIN_EXTRAS;
 
         let mut lines = Vec::with_capacity(state.height_hint);
         for i in state.view.range() {
@@ -111,11 +118,12 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
             // TODO: Render the line_no, not the match_no for FilterLine. Will need to encapsulate
             // String and have a render columns method or similar.
             lines.push(Line::from(format!(
-                "{}{:>5} {l:.w$}",
-                if i == current { ">" } else { " " },
+                "{:>line_no_width$}{}{l:.content_width$}",
                 i,
-                w = width as usize,
+                if i == current { ">" } else { " " },
+                content_width = width as usize,
                 l = l.get(self.start_point..).unwrap_or(""),
+                line_no_width = line_no_width
             )));
 
             state.cell_renders += 1;
@@ -156,7 +164,7 @@ pub struct Tui {
     // Fill ratio for content pane... 1..9
     content_fill: usize,
     // Margin for line numbers and carret
-    margin: usize,
+    line_no_width: usize,
 
     // Are we showing the filter edit modal?
     filter_edit: Option<FilterEditState>,
@@ -200,6 +208,7 @@ impl Tui {
                 view: content_view,
                 height_hint: 0,
                 width_hint: 0,
+                content_num_lines: 0,
                 cell_renders: 0,
             },
             content_scroll_state: ScrollbarState::new(0),
@@ -210,6 +219,7 @@ impl Tui {
                 view: filter_view,
                 height_hint: 0,
                 width_hint: 0,
+                content_num_lines: 0,
                 cell_renders: 0,
             },
             filter_tail: false,
@@ -221,7 +231,7 @@ impl Tui {
 
             current_window: true,
             content_fill: 7,
-            margin: 7, // TODO: Resize base no file size
+            line_no_width: 0,
 
             filter_edit: None,
             sync_filter_to_content: false,
@@ -249,6 +259,10 @@ impl Tui {
         let mut dirty = true;
 
         while !should_quit {
+            // Let the states know the current file length to ensure margin layout
+            self.content_state.content_num_lines = self.content_state.view.get_stats().file_lines;
+            self.filter_state.content_num_lines = self.content_state.content_num_lines;
+
             if can_render && dirty {
                 trace!("Draw!");
                 terminal.draw(|frame| self.draw(frame))?;
@@ -314,6 +328,8 @@ impl Tui {
                             }
                         }
                     }
+
+                    self.line_no_width = common::count_digits(self.content_state.view.get_stats().file_lines) + MARGIN_EXTRAS;
                 },
                 filter_resp = self.filter_ffresp_recv.recv() => {
                     trace!("Filter resp: {:?}", filter_resp);
@@ -548,13 +564,15 @@ impl Tui {
 
     async fn pan(&mut self, delta: isize) -> Result<()> {
         if self.current_window {
-            self.content_state
-                .view
-                .pan(delta, self.content_state.width_hint - self.margin);
+            self.content_state.view.pan(
+                delta,
+                self.content_state.width_hint - self.line_no_width + MARGIN_EXTRAS,
+            );
         } else {
-            self.filter_state
-                .view
-                .pan(delta, self.content_state.width_hint - self.margin);
+            self.filter_state.view.pan(
+                delta,
+                self.content_state.width_hint - self.line_no_width + MARGIN_EXTRAS,
+            );
         };
 
         Ok(())
@@ -574,11 +592,11 @@ impl Tui {
         if self.current_window {
             self.content_state
                 .view
-                .pan_end(self.content_state.width_hint - self.margin);
+                .pan_end(self.content_state.width_hint - self.line_no_width);
         } else {
             self.filter_state
                 .view
-                .pan_end(self.content_state.width_hint - self.margin);
+                .pan_end(self.content_state.width_hint - self.line_no_width);
         }
 
         Ok(())

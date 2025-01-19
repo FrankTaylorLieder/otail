@@ -30,3 +30,10 @@ pub fn clamped_add(a: usize, b: isize, min: usize, max: usize) -> usize {
         v as usize
     }
 }
+
+pub fn count_digits(n: usize) -> usize {
+    if n == 0 {
+        return 1;
+    }
+    (n as f64).log10().floor() as usize + 1
+}
