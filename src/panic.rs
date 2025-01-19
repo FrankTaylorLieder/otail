@@ -54,7 +54,7 @@ pub fn init_panic_handler() {
 
         // Format the panic message
         let panic_message = format!(
-            "\n[PANIC] Timestamp: {}\nThread: {}\nLocation: {}\nMessage: {}\nBacktrace:\n{:?}\n\n",
+            "\n[PANIC] Timestamp: {}\nThread: {}\nLocation: {}\nMessage: {}\nBacktrace:\n{:#?}\n\n",
             timestamp, thread_name, location, message, backtrace
         );
 

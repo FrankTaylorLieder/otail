@@ -61,10 +61,7 @@ pub enum FFReqResp {
 
 #[derive(Debug)]
 pub enum FFReq {
-    SetFilter {
-        filter_spec: Option<FilterSpec>,
-        response: Option<FilterReqRespSender>,
-    },
+    SetFilter { filter_spec: Option<FilterSpec> },
 }
 
 #[derive(Debug)]
@@ -73,7 +70,6 @@ struct Client {
     channel: FFRespSender,
     tailing: bool,
     interested: HashSet<usize>,
-    pending: HashSet<usize>,
 }
 
 type LineNo = usize;
@@ -173,8 +169,6 @@ impl FFile {
             })
             .await?;
 
-        trace!("Waiting on commands/updates...");
-
         loop {
             trace!("Select...");
             select! {
@@ -212,7 +206,6 @@ impl FFile {
                     }
                 }
             }
-            trace!("Looping...");
         }
 
         trace!("FFile finished");
@@ -221,13 +214,8 @@ impl FFile {
     }
 
     async fn handle_ff_command(&mut self, cmd: FFReq) -> Result<()> {
-        // TODO: Send response if a response channel is provided.
-        // TODO: Handle errors properly.
         match cmd {
-            FFReq::SetFilter {
-                filter_spec,
-                response,
-            } => {
+            FFReq::SetFilter { filter_spec } => {
                 trace!("Setting filter: {:?}", filter_spec);
 
                 let Some(filter_spec) = filter_spec else {
@@ -295,9 +283,6 @@ impl FFile {
                         Ok(())
                     }
                     Some(line_no) => {
-                        // self.request_line_for_client(filter_state, client, *line_no, match_no)
-                        //     .await?;
-                        // Ok(())
                         trace!("Requesting match line: {} / {}", line_no, match_no);
 
                         self.if_req_sender
@@ -307,7 +292,6 @@ impl FFile {
                             })
                             .await?;
 
-                        client.pending.insert(*line_no); // TODO: Need pending?
                         filter_state.line_to_match.insert(*line_no, match_no);
 
                         Ok(())
@@ -335,7 +319,6 @@ impl FFile {
                         channel: client_sender.clone(),
                         tailing: false,
                         interested: HashSet::new(),
-                        pending: HashSet::new(),
                     },
                 );
 
@@ -413,33 +396,11 @@ impl FFile {
                 })
                 .await?;
 
-            client.pending.insert(*line_no); // TODO: Need pending?
             filter_state.line_to_match.insert(*line_no, match_no);
         }
+
         Ok(())
     }
-
-    // async fn request_line_for_client(
-    //     &mut self,
-    //     filter_state: &mut FilterState,
-    //     client: &mut Client,
-    //     line_no: usize,
-    //     match_no: usize,
-    // ) -> Result<()> {
-    //     trace!("Requesting match line: {} / {}", line_no, match_no);
-    //
-    //     self.if_req_sender
-    //         .send(crate::ifile::FileReq::GetLine {
-    //             id: self.id.clone(),
-    //             line_no,
-    //         })
-    //         .await?;
-    //
-    //     client.pending.insert(line_no); // TODO: Need pending?
-    //     filter_state.line_to_match.insert(line_no, match_no);
-    //
-    //     Ok(())
-    // }
 
     async fn start_spooling(&mut self) -> Result<()> {
         trace!("Start spooling: {}", self.id);

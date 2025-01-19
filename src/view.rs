@@ -22,7 +22,7 @@ pub struct LinesSlice {
 #[derive(Debug, Clone, Default)]
 pub struct Stats {
     pub file_lines: usize,
-    pub file_bytes: usize,
+    pub file_bytes: u64,
 }
 
 #[derive(Debug, Default)]

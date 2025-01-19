@@ -503,7 +503,6 @@ impl Tui {
                 } else {
                     None
                 },
-                response: None,
             })
             .await?;
 

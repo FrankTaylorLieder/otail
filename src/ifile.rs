@@ -22,11 +22,11 @@ pub type FileRespReceiver<T> = mpsc::Receiver<T>;
 pub enum FileReq<T> {
     GetLine {
         id: String,
-        line_no: usize, // 0-based
+        line_no: usize,
     },
     CancelLine {
         id: String,
-        line_no: usize, // 0-based
+        line_no: usize,
     },
     RegisterClient {
         id: String,
@@ -45,7 +45,7 @@ pub enum FileReq<T> {
 pub enum FileResp<L> {
     Stats {
         file_lines: usize,
-        file_bytes: usize,
+        file_bytes: u64,
     },
     Line {
         line_no: usize,
@@ -78,6 +78,7 @@ struct Client<L> {
     interested: HashSet<usize>,
 }
 
+// Separate Clients from BackingFile to avoid overlapping references to &mut self.
 #[derive(Debug)]
 struct Clients {
     clients: HashMap<String, Client<String>>,
@@ -92,14 +93,11 @@ struct BackingFile {
 pub struct IFile {
     view_receiver: FileReqReceiver<IFResp<String>>,
     view_sender: FileReqSender<IFResp<String>>,
-    reader_receiver: ReaderUpdateReceiver,
-    reader_sender: ReaderUpdateSender,
     path: PathBuf,
     backing_file: BackingFile,
-    // TODO: Remove storing lines... use file reads instead.
     lines: Vec<SLine>,
     file_lines: usize,
-    file_bytes: usize,
+    file_bytes: u64,
     clients: Clients,
 }
 
@@ -112,29 +110,28 @@ impl IFile {
         let file = BufReader::new(raw_file);
 
         let (view_sender, view_receiver) = mpsc::channel(CHANNEL_BUFFER);
-        let (reader_sender, reader_receiver) = mpsc::channel(CHANNEL_BUFFER);
 
-        Ok(IFile {
+        let ifile = IFile {
             path: pb,
             backing_file: BackingFile { file },
             view_receiver,
             view_sender,
-            reader_receiver,
-            reader_sender,
             lines: vec![],
             file_lines: 0,
             file_bytes: 0,
             clients: Clients {
                 clients: HashMap::new(),
             },
-        })
+        };
+
+        Ok(ifile)
     }
 
-    fn run_reader(&mut self, cs: ReaderUpdateSender) {
-        let cs = cs.clone();
+    fn run_reader(&mut self) -> ReaderUpdateReceiver {
+        let (reader_sender, reader_receiver) = mpsc::channel(CHANNEL_BUFFER);
         let path = self.path.clone();
         tokio::spawn(async move {
-            match Reader::run(path, cs).await {
+            match Reader::run(path, reader_sender).await {
                 Err(err) => {
                     error!("Reader failed: {:?}", err);
                 }
@@ -143,6 +140,8 @@ impl IFile {
                 }
             }
         });
+
+        reader_receiver
     }
 
     pub fn get_view_sender(&self) -> FileReqSender<IFResp<String>> {
@@ -152,9 +151,7 @@ impl IFile {
     pub async fn run(&mut self) -> Result<()> {
         debug!("Ifile starting: {:?}", self.path);
 
-        self.run_reader(self.reader_sender.clone());
-
-        trace!("Waiting on commands/updates...");
+        let mut reader_receiver = self.run_reader();
 
         loop {
             trace!("Select...");
@@ -170,7 +167,7 @@ impl IFile {
                         }
                     }
                 }
-                update = self.reader_receiver.recv() => {
+                update = reader_receiver.recv() => {
                     match update {
                         Some(update) => {
                             self.handle_reader_update(update).await?;
@@ -182,7 +179,6 @@ impl IFile {
                     }
                 }
             }
-            trace!("Looping...");
         }
 
         trace!("IFile finished");
@@ -231,12 +227,7 @@ impl IFile {
                 );
 
                 for (id, client) in self.clients.clients.iter_mut() {
-                    trace!(
-                        "Sending update to client: {} - line {}",
-                        id,
-                        updated_line_no,
-                    );
-                    // TODO: Deal with unwrap
+                    trace!("Sending stats to client: {} - line {}", id, updated_line_no,);
                     client
                         .channel
                         .send(IFResp::ViewUpdate {
@@ -247,7 +238,7 @@ impl IFile {
                         })
                         .await?;
                     if client.interested.remove(&updated_line_no) || client.tailing {
-                        trace!("Sending line to: {}", id);
+                        trace!("Sending line to client: {}", id);
                         client
                             .channel
                             .send(IFResp::ViewUpdate {
@@ -269,20 +260,17 @@ impl IFile {
                 self.file_bytes = 0;
 
                 for (id, client) in self.clients.clients.iter_mut() {
-                    trace!("Sending truncate");
-                    // TODO: Deal with unwrap
+                    trace!("Sending truncate to client: {}", id);
                     client.interested = HashSet::new();
                     client.channel.send(IFResp::Truncated).await?;
                 }
-
                 Ok(())
             }
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
 
                 for (id, updater) in self.clients.clients.iter_mut() {
-                    trace!("Forwarding error");
-                    // TODO: Deal with unwrap
+                    trace!("Forwarding error to client: {}", id);
                     updater.interested = HashSet::new();
                     updater
                         .channel
@@ -315,7 +303,6 @@ impl IFile {
                         Ok(())
                     }
                     Some(sl) => {
-                        // TODO: Fetch the data from the file rather than locally stored data.
                         let backing_file = &mut self.backing_file;
                         let line_content = backing_file.read_line(sl)?.clone();
 
@@ -366,8 +353,6 @@ impl IFile {
                         },
                     })
                     .await?;
-
-                trace!("Finished register");
                 Ok(())
             }
             FileReq::EnableTailing { id, last_seen_line } => {
@@ -379,6 +364,7 @@ impl IFile {
                 };
 
                 client.tailing = true;
+
                 // Determine which lines the client will not know about.
                 for i in last_seen_line..self.file_lines {
                     let sl = self.lines.get(i);
@@ -413,7 +399,6 @@ impl IFile {
                 };
 
                 client.tailing = false;
-
                 Ok(())
             }
         }
