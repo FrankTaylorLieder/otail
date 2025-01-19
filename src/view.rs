@@ -1,17 +1,11 @@
 use std::cmp::{max, min};
-use std::collections::VecDeque;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Seek};
-use std::ops::{Range, RangeBounds};
+use std::ops::Range;
 
-use anyhow::{anyhow, Result};
-use log::{debug, error, trace, warn};
-use ratatui::symbols::line;
-use tokio::select;
-use tokio::sync::{mpsc, oneshot};
+use anyhow::Result;
+use log::{debug, trace, warn};
 
-use crate::common::{clamped_add, LineContent};
-use crate::ifile::{FileReq, FileReqSender, FileResp, FileRespSender, IFResp};
+use crate::common::{self, clamped_add, LineContent};
+use crate::ifile::{FileReq, FileReqSender, FileResp, FileRespSender};
 
 #[derive(Debug, Default, Eq, PartialEq, Clone)]
 pub struct LinesSlice {
@@ -34,7 +28,6 @@ struct LineCache<L> {
 #[derive(Debug)]
 pub struct View<T, L> {
     id: String,
-    path: String,
 
     viewport: LinesSlice,
     current: usize,
@@ -57,14 +50,6 @@ pub enum UpdateAction {
     Error { msg: String },
 }
 
-fn clamped_sub(a: usize, b: usize) -> usize {
-    if b > a {
-        0
-    } else {
-        a - b
-    }
-}
-
 impl LinesSlice {
     pub fn range(&self) -> Range<usize> {
         self.first_line..(self.first_line + self.num_lines)
@@ -72,10 +57,6 @@ impl LinesSlice {
 }
 
 impl<L: Clone + LineContent> LineCache<L> {
-    pub fn set_range(&mut self, range: LinesSlice) {
-        self.range = range;
-    }
-
     pub fn reset(&mut self) -> Vec<usize> {
         self.lines = vec![None; self.range.num_lines];
 
@@ -125,10 +106,6 @@ impl<L: Clone + LineContent> LineCache<L> {
         missing_lines
     }
 
-    pub fn get_viewport(&self) -> &LinesSlice {
-        &self.range
-    }
-
     pub fn set_line(&mut self, line_no: usize, line: L, tailing: bool) -> bool {
         if !self.range.range().contains(&line_no) {
             // Determine the next line after the current buffer if we were tailing.
@@ -175,13 +152,11 @@ impl<L: Clone + LineContent> LineCache<L> {
 impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L> {
     pub fn new(
         id: String,
-        path: String,
         ifile_req_sender: FileReqSender<T>,
         ifile_resp_sender: FileRespSender<T>,
     ) -> Self {
         View {
             id,
-            path,
 
             viewport: LinesSlice::default(),
             current: 0,
@@ -200,8 +175,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
     }
 
     pub async fn init(&self) -> Result<()> {
-        let r = self
-            .ifile_req_sender
+        self.ifile_req_sender
             .send(FileReq::RegisterClient {
                 id: self.id.clone(),
                 client_sender: self.ifile_resp_sender.clone(),
@@ -292,7 +266,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
             return Ok(());
         }
 
-        let last_line = clamped_sub(self.get_stats().file_lines, 1);
+        let last_line = common::clamped_sub(self.get_stats().file_lines, 1);
         self.set_current(last_line).await?;
 
         self.ifile_req_sender
@@ -447,7 +421,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
 
                 if self.tailing {
                     if let Err(err) = self
-                        .set_current(clamped_sub(self.stats.file_lines, 1))
+                        .set_current(common::clamped_sub(self.stats.file_lines, 1))
                         .await
                     {
                         warn!("Failed to set current to last line during tail: {:?}", err);

@@ -87,7 +87,6 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
 {
     type State = LazyState<T, L>;
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        // TODO: Make scrolling renders smooth.
         self.block.render(area, buf);
         let inner = self.block.inner_if_some(area);
 
@@ -185,13 +184,11 @@ impl Tui {
 
         let content_view = View::new(
             "content".to_owned(),
-            path.clone(),
             ifreq_sender.clone(),
             content_ifresp_sender,
         );
         let filter_view = View::new(
             "filter".to_owned(),
-            path.clone(),
             ffreq_sender.clone(),
             filter_ifresp_sender,
         );
@@ -307,8 +304,8 @@ impl Tui {
                             should_quit = self.handle_event(&e).await?;
                         },
                         Some(Err(err)) => {
-                            println!("Error: {:?}", err);
-                            bail!("Event error: {:?}", err);
+                            error!("Terminal error: {:?}", err);
+                            bail!("Terminal error: {:?}", err);
                         },
                         None => {}
                     }
@@ -382,6 +379,7 @@ impl Tui {
                     // Showing the main window.
                     None => match (key.code, key.modifiers) {
                         (KeyCode::Char('q'), _) => return Ok(true),
+
                         (KeyCode::Char('j') | KeyCode::Down, _) => self.scroll(1).await?,
                         (KeyCode::Char('k') | KeyCode::Up, _) => self.scroll(-1).await?,
                         (KeyCode::Char('d'), _) => self.scroll(20).await?,
@@ -395,7 +393,6 @@ impl Tui {
                         (KeyCode::Char('L'), KeyModifiers::SHIFT) => self.pan(20).await?,
                         (KeyCode::Char('h'), _) => self.pan(-1).await?,
                         (KeyCode::Char('l'), _) => self.pan(1).await?,
-
                         (KeyCode::Char('^'), _) => self.pan_start().await?,
                         (KeyCode::Char('$'), _) => self.pan_end().await?,
 
@@ -435,11 +432,7 @@ impl Tui {
         }
 
         if let Some(filter_spec) = filter_spec_to_apply {
-            trace!(
-                "XXX Applying filter spec: {:?}, {}",
-                filter_spec,
-                self.filter_enabled
-            );
+            trace!("New filter spec: {:?}", filter_spec);
             self.set_filter_spec(filter_spec.clone()).await?;
             self.filter_spec = filter_spec;
         }
@@ -454,7 +447,6 @@ impl Tui {
         );
 
         self.sync_filter_to_content = !self.sync_filter_to_content;
-
         self.auto_sync_if_needed().await?;
 
         Ok(())

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::{fmt::Display, path::PathBuf};
+use std::path::PathBuf;
 use tokio::sync::oneshot;
 
 use anyhow::{anyhow, Result};
@@ -222,7 +222,7 @@ impl FFile {
                     trace!("Removing filter");
                     self.filter_state = None;
 
-                    for (name, client) in self.clients.iter() {
+                    for (_, client) in self.clients.iter() {
                         client.channel.send(FFResp::Clear).await?;
                     }
                     return Ok(());
@@ -247,7 +247,7 @@ impl FFile {
                     next_line_to_request: 0,
                 });
 
-                for (name, client) in self.clients.iter() {
+                for (_, client) in self.clients.iter() {
                     client.channel.send(FFResp::Clear).await?;
                 }
 
@@ -371,7 +371,7 @@ impl FFile {
         // Determine which lines the client will not know about.
         for match_no in last_seen_line..filter_state.num_matches {
             let sl = filter_state.matches.get(match_no);
-            let Some(l) = sl else {
+            if sl.is_none() {
                 warn!(
                     "Unknown line whilst sending missing tailing lines: {}",
                     match_no

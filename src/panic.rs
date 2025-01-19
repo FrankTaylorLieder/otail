@@ -2,7 +2,6 @@ use std::backtrace::Backtrace;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::panic;
-use std::path::Path;
 use std::sync::Mutex;
 use std::thread;
 use std::time::SystemTime;

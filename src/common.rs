@@ -20,6 +20,14 @@ impl LineContent for String {
     }
 }
 
+pub fn clamped_sub(a: usize, b: usize) -> usize {
+    if b > a {
+        0
+    } else {
+        a - b
+    }
+}
+
 pub fn clamped_add(a: usize, b: isize, min: usize, max: usize) -> usize {
     let v = a as i64 + b as i64;
     if v > max as i64 {

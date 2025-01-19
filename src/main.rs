@@ -1,33 +1,20 @@
-#![allow(unused)]
 use std::io::stdout;
 
-use anyhow::Result;
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
-use log::{debug, info, trace};
+use log::info;
 use rtail::ffile::FFile;
+use rtail::ifile::IFile;
 use rtail::panic::init_panic_handler;
 use rtail::tui::Tui;
-use rtail::{ifile::IFile, view::View};
-use tokio::sync::mpsc;
 
 use ratatui::{
     backend::CrosstermBackend,
-    buffer::Buffer,
     crossterm::{
-        event::{self, Event, KeyCode},
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
-    layout::{Alignment, Constraint, Layout, Margin, Rect},
-    style::{Style, Stylize},
-    symbols,
-    text::{Line, Span, Text},
-    widgets::{
-        block::BlockExt, Block, BorderType, Borders, Cell, Paragraph, Row, Scrollbar,
-        ScrollbarOrientation, ScrollbarState, StatefulWidget, Table, TableState, Widget,
-    },
-    DefaultTerminal, Frame, Terminal,
+    Terminal,
 };
 
 #[derive(Parser, Debug)]
@@ -60,28 +47,24 @@ async fn main() -> anyhow::Result<()> {
         ffile.get_ff_sender(),
     );
 
-    let ifh = tokio::spawn(async move {
+    tokio::spawn(async move {
         let result = ifile.run().await;
         info!("IFile finished: {:?}", result);
     });
 
-    let ffh = tokio::spawn(async move {
+    tokio::spawn(async move {
         let result = ffile.run().await;
         info!("FFile finished: {:?}", result);
     });
 
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    tui.run(terminal).await;
+    tui.run(terminal).await?;
 
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
-
-    // debug!("Waiting for ifile and ffile to finish");
-    // ifh.await;
-    // ffh.await;
 
     Ok(())
 }

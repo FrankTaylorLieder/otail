@@ -4,13 +4,11 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek};
 use std::path::PathBuf;
-use std::time::Duration;
-use std::{thread, usize};
 use tokio::select;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use crate::common::CHANNEL_BUFFER;
-use crate::reader::{Reader, ReaderUpdate, ReaderUpdateReceiver, ReaderUpdateSender};
+use crate::reader::{Reader, ReaderUpdate, ReaderUpdateReceiver};
 
 pub type FileReqSender<T> = mpsc::Sender<FileReq<T>>;
 pub type FileReqReceiver<T> = mpsc::Receiver<FileReq<T>>;
@@ -64,15 +62,15 @@ pub enum IFResp<L> {
 #[derive(Debug)]
 struct SLine {
     offset: u64,
-    line_no: usize,
-    line_chars: usize,
-    line_bytes: usize,
+    _line_no: usize,
+    _line_chars: usize,
+    _line_bytes: usize,
     partial: bool,
 }
 
 #[derive(Debug)]
 struct Client<L> {
-    id: String,
+    _id: String,
     channel: FileRespSender<IFResp<L>>,
     tailing: bool,
     interested: HashSet<usize>,
@@ -201,17 +199,17 @@ impl IFile {
                 if partial {
                     self.lines[updated_line_no] = SLine {
                         offset,
-                        line_no: updated_line_no,
-                        line_chars: line_content.len(),
-                        line_bytes,
+                        _line_no: updated_line_no,
+                        _line_chars: line_content.len(),
+                        _line_bytes: line_bytes,
                         partial: true,
                     }
                 } else {
                     self.lines.push(SLine {
                         offset,
-                        line_no: updated_line_no,
-                        line_chars: line_content.len(),
-                        line_bytes,
+                        _line_no: updated_line_no,
+                        _line_chars: line_content.len(),
+                        _line_bytes: line_bytes,
                         partial: false,
                     });
                     self.file_lines += 1;
@@ -338,7 +336,7 @@ impl IFile {
                 self.clients.clients.insert(
                     id.clone(),
                     Client {
-                        id,
+                        _id: id,
                         channel: client_sender.clone(),
                         tailing: false,
                         interested: HashSet::new(),
