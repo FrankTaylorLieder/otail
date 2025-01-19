@@ -290,4 +290,5 @@ Usability issues:
 Future enhancements:
 - Share line data using Arc<String> - reduce copying
 - Move around views by %
+- Show spooling progress on filter view.
 

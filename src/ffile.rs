@@ -511,6 +511,7 @@ impl FFile {
     }
 
     async fn handle_ifile_update(&mut self, update: IFResp<String>) -> Result<()> {
+        trace!("XXX Handling ifile update: {:?}", update);
         match update {
             IFResp::ViewUpdate {
                 update:
@@ -522,7 +523,7 @@ impl FFile {
             } => {
                 let Some(filter_state) = &mut self.filter_state else {
                     // No current filter, so not expecting data... just ignore this.
-                    trace!("Ingoring data when no filter set.");
+                    trace!("Ignoring data when no filter set.");
                     return Ok(());
                 };
 
