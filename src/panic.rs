@@ -12,7 +12,7 @@ lazy_static::lazy_static! {
         OpenOptions::new()
             .create(true)
             .append(true)
-            .open("rtail-panic.log")
+            .open("otail-panic.log")
             .expect("Failed to open panic log file")
     );
 }

@@ -3,10 +3,10 @@ use std::{fs::File, io::stdout};
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
 use log::{error, info};
-use rtail::ffile::FFile;
-use rtail::ifile::IFile;
-use rtail::panic::init_panic_handler;
-use rtail::tui::Tui;
+use otail::ffile::FFile;
+use otail::ifile::IFile;
+use otail::panic::init_panic_handler;
+use otail::tui::Tui;
 
 use ratatui::{
     backend::CrosstermBackend,
@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    info!("rtail starting: {:?}", args);
+    info!("otail starting: {:?}", args);
 
     // Quickly check the file before starting... can produce a better error.
     if let Err(e) = File::open(&args.path) {

@@ -817,6 +817,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
 
 [[package]]
+name = "otail"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crossterm",
+ "env_logger",
+ "flexi_logger",
+ "fmtsize",
+ "futures",
+ "futures-timer",
+ "lazy_static",
+ "log",
+ "notify",
+ "num-format",
+ "ratatui",
+ "regex",
+ "tokio",
+ "tokio-util",
+ "tui-input",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -933,29 +956,6 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
-
-[[package]]
-name = "rtail"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crossterm",
- "env_logger",
- "flexi_logger",
- "fmtsize",
- "futures",
- "futures-timer",
- "lazy_static",
- "log",
- "notify",
- "num-format",
- "ratatui",
- "regex",
- "tokio",
- "tokio-util",
- "tui-input",
-]
 
 [[package]]
 name = "rustc-demangle"

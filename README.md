@@ -1,4 +1,4 @@
-# rtail
+# otail
 
 A TUI-based two-pane log file viewer with search.
 
@@ -27,15 +27,15 @@ Install from a locally clones git repo:
 
 or directly:
 
-- `cargo install --git https://github.com/FrankTaylorLieder/rtail.git`
+- `cargo install --git https://github.com/FrankTaylorLieder/otail.git`
 
 ## Running
 
 Running:
 
-- `rtail <file>`
+- `otail <file>`
 
-Note: `rtail` only works against files on disk. It does not read from `STDIN`.
+Note: `otail` only works against files on disk. It does not read from `STDIN`.
 
 ## Contributions
 
