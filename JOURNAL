@@ -279,17 +279,17 @@ Usability issues:
 - DONE Where is the scrollbar?
 - DONE Fetch data from file, not in-memory cache.
 - DONE Adjust the margin size based on the content length.
-- Bold the current line
 - Tidy up corners
   - DONE unwraps
   - DONE types of file byte offsets -> u64
   - DONE Validation of path before starting up.
   - DONE Handling truncation
-  - Tailing filter, on truncation stops tailing
+  - DONE Tailing filter, on truncation stops tailing
 - Publish v0.1 on crates.io - rename to ttail
 
 Future enhancements:
 - Share line data using Arc<String> - reduce copying
 - Move around views by %
 - Show spooling progress on filter view.
+- Bold the current line
 
