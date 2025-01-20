@@ -285,6 +285,7 @@ Usability issues:
   - DONE types of file byte offsets -> u64
   - DONE Validation of path before starting up.
   - DONE Handling truncation
+  - Tailing filter, on truncation stops tailing
 - Publish v0.1 on crates.io - rename to ttail
 
 Future enhancements:

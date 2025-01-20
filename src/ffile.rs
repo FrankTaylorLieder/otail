@@ -557,13 +557,16 @@ impl FFile {
                 }
             }
             IFResp::Truncated => {
-                let Some(filter_state) = &mut self.filter_state else {
-                    // No current filter, ignore truncation.
-                    trace!("Ignoring truncation, no current filter.");
-                    return Ok(());
+                let new_filter = match &mut self.filter_state {
+                    None => {
+                        trace!("Ignoring truncation, no current filter.");
+                        return Ok(());
+                    }
+                    Some(filter_state) => filter_state.filter_spec.clone(),
                 };
 
-                self.filter_state = Some(FilterState::make(filter_state.filter_spec.clone())?);
+                self.set_filter_state(Some(FilterState::make(new_filter)?))
+                    .await?;
             }
             _ => {
                 trace!("Ignoring unimportant message: {:?}", update);
