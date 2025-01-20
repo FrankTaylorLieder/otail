@@ -1,6 +1,6 @@
-# otail
+# otail - Oxidized Tail
 
-A TUI-based two-pane log file viewer with search.
+A TUI-based two-pane log file viewer with search. Written in Rust.
 
 Note: this is an early stage project.
 
