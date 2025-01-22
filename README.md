@@ -75,7 +75,7 @@ filtered content for the filter pane).
     - Move left/right by 20 characters.
   - `$`, `^`
     - Move to the end and start of lines.
-  - 'g', 'G'
+  - `g`, `G`
     - Move to the first/last line of the file.
 
 - Pane
@@ -85,7 +85,7 @@ filtered content for the filter pane).
     - Grow or shrink the current pane height.
 
 - Controls
-  - 't'
+  - `t`
     - Toggle tailing for the current pane.
   - `s`
     - Sync the content pane with the filter pane.
@@ -93,7 +93,7 @@ filtered content for the filter pane).
     - Toggle auto-sync.
   - `/`
     - Open the filter edit dialogue.
-  - 'q'
+  - `q`
     - Quit `otail`.
 
 - Filter dialogue
