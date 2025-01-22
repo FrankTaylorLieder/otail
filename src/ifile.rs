@@ -346,8 +346,8 @@ impl IFile {
                 client_sender
                     .send(IFResp::ViewUpdate {
                         update: FileResp::Stats {
-                            file_lines: 0,
-                            file_bytes: 0,
+                            file_lines: self.file_lines,
+                            file_bytes: self.file_bytes,
                         },
                     })
                     .await?;

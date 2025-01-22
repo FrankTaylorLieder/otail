@@ -654,20 +654,18 @@ impl Tui {
         frame.render_widget(tail_status, tail_area);
         frame.render_widget(file_stats, stats_area);
 
-        let content_layout = Layout::horizontal([Constraint::Min(1), Constraint::Length(1)]);
-        let [content_content_area, content_scroll_area] = content_layout.areas(file_area);
         let content = LazyList::new(self.content_state.view.get_start_point()).block(
             Block::bordered()
                 .border_set(self.selected_border(self.current_window))
                 .title("Content"),
         );
-        frame.render_stateful_widget(content, content_content_area, &mut self.content_state);
+        frame.render_stateful_widget(content, file_area, &mut self.content_state);
         frame.render_stateful_widget(
             Scrollbar::default()
                 .orientation(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
                 .end_symbol(None),
-            content_content_area.inner(Margin {
+            file_area.inner(Margin {
                 vertical: 1,
                 horizontal: 1,
             }),
