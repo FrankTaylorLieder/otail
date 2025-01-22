@@ -54,7 +54,7 @@ the expression is shown in the filter pane.
 When focussed on the filter pane, pressing `s` will sync the current line of
 the top pane to the line highlighed in the filter pane. Pressing `S` will
 toggle auto-sync, meaning whenever the current line of the filter pane changes,
-the content pane will be sycned.
+the content pane will be synced.
 
 Finally, either pane can be toggled to tailing mode where the content
 automatically scrolls to any new content added to the file (similarly any new
