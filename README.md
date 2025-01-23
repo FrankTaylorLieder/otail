@@ -6,9 +6,9 @@ Note: this is an early stage project.
 
 ## Features
 
-- Show a log file in the top pane.
-- The lower pane shows a filtered view of the view.
-- Sync the top pane to the currently selected filter pane line.
+- Shows a log file in the top content pane.
+- The lower filtered pane shows a filtered view of the file.
+- Sync the top pane to the currently selected filtered pane line.
 - Both panes can tail the file.
 - Handles file truncation.
 
@@ -16,22 +16,22 @@ Note: this is an early stage project.
 
 (No promises!)
 
-- Coloured matching. Highlight interesting content wherever it appears in the UI.
+- Colouring. Highlight interesting content wherever it appears in the UI.
 - Layered filtering. Consecutively apply filters to narrow down a search.
 
 ## Installing
 
-Install from a locally clones git repo:
+Install from a locally cloned git repo:
 
 - `cargo install --path .`
 
-or directly:
+or directly from git:
 
 - `cargo install --git https://github.com/FrankTaylorLieder/otail.git`
 
 ## Running
 
-Running:
+Run:
 
 - `otail <file>`
 
@@ -40,14 +40,15 @@ Note: `otail` only works against files on disk. It does not read from `STDIN`.
 You can enable logging:
 
 - `RUST_LOG=trace otail <file>`
-  - Logging levels: `tracez`, `debug`, `info`, `warn`, `error`
+  - Logging levels: `trace`, `debug`, `info`, `warn`, `error`
 
 ## Operation
 
-The TUI opens with two panels: the top one displays the full log file, the
-lower one displays a filtered view (empty to start with as no filter is
-specified). You switch focus between the panels (`TAB`) and move around the
-contents. Key bindings (below) are reminiscent of VIM.
+The TUI opens with two panels: the top one displays the full log file (content
+pane), the lower one displays a filtered view (filtered pane, empty to start
+with as no filter is specified). You can switch focus between the panels
+(`TAB`) and move around the contents. Key bindings (below) are reminiscent of
+VIM.
 
 The file contents are displayed without wrapping, one file line per screen
 line. You need to scroll left/right to see content off the screen.
@@ -56,19 +57,19 @@ To change the filter expression press `/` which opens up a dialogue box to add
 or change the filter expression (a regex). When applied, any line that matches
 the expression is shown in the filter pane.
 
-When focussed on the filter pane, pressing `s` will sync the current line of
-the top pane to the line highlighed in the filter pane. Pressing `S` will
-toggle auto-sync, meaning whenever the current line of the filter pane changes,
-the content pane will be synced.
+Pressing `s` will sync the current line of the content pane to the line current
+line in the filtered pane. Pressing `S` will toggle auto-sync, meaning whenever
+the current line of the filtered pane changes, the content pane will be synced.
 
-Finally, either pane can be toggled to tailing mode where the content
-automatically scrolls to any new content added to the file (similarly any new
-filtered content for the filter pane).
+Finally, either pane can be toggled to tailing mode which automatically scrolls
+to any new content.
 
 ### Key bindings
 
+Note: the key bindings may change before this reaches its first stable release.
+
 - Movement (applies to the current pane)
-  - `h`, `j`, `k`, `l`, `UP`, `DOWN`, `LEFT`, `RIGHT`
+  - `h`, `j`, `k`, `l`, `LEFT`, `DOWN`, `UP`, `RIGHT`
     - Move up/down/left/right by a single line or character.
     - Note: the content will only pan left/right if there is content truncated
     off the screen.
@@ -93,7 +94,7 @@ filtered content for the filter pane).
   - `t`
     - Toggle tailing for the current pane.
   - `s`
-    - Sync the content pane with the filter pane.
+    - Sync the content pane with the filtered pane.
   - `S`
     - Toggle auto-sync.
   - `/`
