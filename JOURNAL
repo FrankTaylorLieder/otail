@@ -272,24 +272,24 @@ Usability issues:
   - DONE Need to explicitly track content line on filter content.
 - DONE Showing the current filter spec.
 - DONE Tailing on filter
-- Scrolling whilst tailing... disable tailing when the viewport changes.
 - DONE G on Filter view takes you past the last line... viewport set too large?
 - DONE Reset current line and pan when changing filter spec
 - DONE Sync when scrolling the filter view does not work
 - DONE Where is the scrollbar?
 - DONE Fetch data from file, not in-memory cache.
 - DONE Adjust the margin size based on the content length.
-- Tidy up corners
+- DONE Tidy up corners
   - DONE unwraps
   - DONE types of file byte offsets -> u64
   - DONE Validation of path before starting up.
   - DONE Handling truncation
   - DONE Tailing filter, on truncation stops tailing
-- Publish v0.1 on crates.io - rename to ttail
 
 Future enhancements:
 - Share line data using Arc<String> - reduce copying
 - Move around views by %
 - Show spooling progress on filter view.
-- Bold the current line
+- DONE Bold the current line
+- Publish v0.1 on crates.io - rename to ttail
+- Scrolling whilst tailing... disable tailing when the viewport changes.
 

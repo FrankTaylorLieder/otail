@@ -1,5 +1,6 @@
 #![allow(unused_imports, unused_variables)]
 use anyhow::{bail, Result};
+use clap::builder::Styles;
 use crossterm::event::{EventStream, KeyModifiers};
 use fmtsize::{Conventional, FmtSize};
 use futures::{FutureExt, StreamExt};
@@ -26,7 +27,7 @@ use ratatui::{
         ExecutableCommand,
     },
     layout::{Alignment, Constraint, Flex, Layout, Margin, Position, Rect},
-    style::{Style, Stylize},
+    style::{Modifier, Style, Styled, Stylize},
     symbols,
     text::{Line, Span, Text},
     widgets::{
@@ -114,15 +115,24 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
                 None => "...".to_owned(),
             };
 
+            let style = if i == current {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
             // TODO: Render the line_no, not the match_no for FilterLine. Will need to encapsulate
             // String and have a render columns method or similar.
-            lines.push(Line::from(format!(
-                "{:>line_no_width$}{}{l:.content_width$}",
-                i,
-                if i == current { ">" } else { " " },
-                content_width = width as usize,
-                l = l.get(self.start_point..).unwrap_or(""),
-                line_no_width = line_no_width
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "{:>line_no_width$}{}{l:.content_width$}",
+                    i,
+                    if i == current { ">" } else { " " },
+                    content_width = width as usize,
+                    l = l.get(self.start_point..).unwrap_or(""),
+                    line_no_width = line_no_width
+                ),
+                style,
             )));
 
             state.cell_renders += 1;
