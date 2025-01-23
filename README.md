@@ -37,6 +37,11 @@ Running:
 
 Note: `otail` only works against files on disk. It does not read from `STDIN`.
 
+You can enable logging:
+
+- `RUST_LOG=trace otail <file>`
+  - Logging levels: `tracez`, `debug`, `info`, `warn`, `error`
+
 ## Operation
 
 The TUI opens with two panels: the top one displays the full log file, the
