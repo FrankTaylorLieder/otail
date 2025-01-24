@@ -44,14 +44,14 @@ You can enable logging:
 
 ## Operation
 
-The TUI opens with two panels: the top one displays the full log file (content
+The TUI opens with two panes: the top one displays the full log file (content
 pane), the lower one displays a filtered view (filtered pane, empty to start
-with as no filter is specified). You can switch focus between the panels
+with as no filter is specified). You can switch focus between the panes
 (`TAB`) and move around the contents. Key bindings (below) are reminiscent of
 VIM.
 
-The file contents are displayed without wrapping, one file line per screen
-line. You need to scroll left/right to see content off the screen.
+The file content is displayed without wrapping, one file line per screen line.
+You need to scroll left/right to see content off the screen.
 
 To change the filter expression press `/` which opens up a dialogue box to add
 or change the filter expression (a regex). When applied, any line that matches
