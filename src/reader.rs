@@ -52,8 +52,9 @@ impl Reader {
             }
 
             let len = br.read_line(&mut line)?;
+            let mut replaced_line = line.replace('\t', " ");
 
-            trace!("Read line: {} @{} / {}", len, file_lines, line);
+            trace!("Read line: {} @{} / {}", len, file_lines, replaced_line);
 
             if len == 0 {
                 break;
@@ -61,7 +62,7 @@ impl Reader {
 
             line_bytes += len;
             pos += len as u64;
-            partial = trim_line_end(&mut line);
+            partial = trim_line_end(&mut replaced_line);
 
             if !partial {
                 file_lines += 1;
@@ -70,7 +71,7 @@ impl Reader {
             sender
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.
-                    line_content: line.clone(),
+                    line_content: replaced_line.clone(),
                     offset: line_offset,
                     line_bytes,
                     partial,
@@ -133,6 +134,7 @@ impl Reader {
                         }
 
                         let len = br.read_line(&mut line)?;
+                        let mut replaced_line = line.replace('\t', " ");
 
                         if len == 0 {
                             break;
@@ -141,12 +143,12 @@ impl Reader {
                         line_bytes += len;
                         pos += len as u64;
 
-                        partial = trim_line_end(&mut line);
+                        partial = trim_line_end(&mut replaced_line);
 
                         sender
                             .send(ReaderUpdate::Line {
                                 // Deliver the whole line each time we send the line.
-                                line_content: line.clone(),
+                                line_content: replaced_line.clone(),
                                 offset: line_offset,
                                 line_bytes,
                                 partial,

@@ -410,14 +410,24 @@ impl BackingFile {
         let mut line = String::new();
         self.file.read_line(&mut line)?;
 
+        let mut replaced_line = line.replace("\t", " ");
+
         // Remove trailing newline if present
+        BackingFile::trim_line_end(&mut replaced_line);
+
+        Ok(replaced_line)
+    }
+
+    fn trim_line_end(line: &mut String) -> bool {
         if line.ends_with('\n') {
             line.pop();
             if line.ends_with('\r') {
                 line.pop();
             }
-        }
 
-        Ok(line)
+            false
+        } else {
+            true
+        }
     }
 }

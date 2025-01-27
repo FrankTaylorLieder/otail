@@ -44,7 +44,8 @@ use crate::{
     view::View,
 };
 
-const MARGIN_EXTRAS: usize = 1; // Allow space between line number of line
+const MARGIN_EXTRAS: usize = 1; // Allow space between line number ond content
+const SCROLLBAR_EXTRAS: usize = 1; // Allow space for scrollbar
 
 #[derive(Debug)]
 struct LazyState<T, L> {
@@ -101,7 +102,9 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
 
         let current = state.view.current();
 
-        let line_no_width = common::count_digits(state.content_num_lines) + MARGIN_EXTRAS;
+        let margin_width = common::count_digits(state.content_num_lines) + MARGIN_EXTRAS;
+        let all_subtractions = margin_width + SCROLLBAR_EXTRAS;
+        let content_width = common::clamped_sub(width as usize, all_subtractions);
 
         let mut lines = Vec::with_capacity(state.height_hint);
         for i in state.view.range() {
@@ -121,19 +124,17 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
                 Style::default()
             };
 
+            let content = format!(
+                "{i:>margin_width$}{c}{l:.content_width$}",
+                i = i,
+                c = if i == current { ">" } else { " " },
+                content_width = content_width,
+                l = l.get(self.start_point..).unwrap_or(""),
+            );
+
             // TODO: Render the line_no, not the match_no for FilterLine. Will need to encapsulate
             // String and have a render columns method or similar.
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "{:>line_no_width$}{}{l:.content_width$}",
-                    i,
-                    if i == current { ">" } else { " " },
-                    content_width = width as usize,
-                    l = l.get(self.start_point..).unwrap_or(""),
-                    line_no_width = line_no_width
-                ),
-                style,
-            )));
+            lines.push(Line::from(Span::styled(content, style)));
 
             state.cell_renders += 1;
         }
@@ -639,6 +640,7 @@ impl Tui {
 
     fn draw(&mut self, frame: &mut Frame) {
         let area = frame.area();
+
         let [title_area, main_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
         let [file_area, controls_area, filter_area] = Layout::vertical([

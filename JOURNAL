@@ -293,3 +293,6 @@ Future enhancements:
 - Publish v0.1 on crates.io - rename to ttail
 - Scrolling whilst tailing... disable tailing when the viewport changes.
 
+
+BUG: Screen corruption.
+
