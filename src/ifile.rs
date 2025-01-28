@@ -1,8 +1,6 @@
 use anyhow::Result;
 use log::{debug, error, info, trace, warn};
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::BufReader;
 use std::path::PathBuf;
 use tokio::select;
 use tokio::sync::mpsc;
@@ -100,14 +98,13 @@ impl IFile {
         let mut pb = PathBuf::new();
         pb.push(path);
 
-        let raw_file = File::open(pb.clone())?;
-        let file = BufReader::new(raw_file);
-
         let (view_sender, view_receiver) = mpsc::channel(CHANNEL_BUFFER);
+
+        let backing_file = BackingFile::new(pb.clone())?;
 
         let ifile = IFile {
             path: pb,
-            backing_file: BackingFile { file },
+            backing_file,
             view_receiver,
             view_sender,
             lines: vec![],

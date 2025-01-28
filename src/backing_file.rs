@@ -1,18 +1,28 @@
 use anyhow::Result;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek};
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct BackingFile {
-    pub file: BufReader<File>,
+    br: BufReader<File>,
 }
 
 impl BackingFile {
+    pub fn new(path: PathBuf) -> Result<Self> {
+        let file = File::open(path.clone())?;
+        let bf = Self {
+            br: BufReader::new(file),
+        };
+
+        Ok(bf)
+    }
+
     pub fn read_line(&mut self, offset: u64) -> Result<String> {
-        self.file.seek(io::SeekFrom::Start(offset))?;
+        self.br.seek(io::SeekFrom::Start(offset))?;
 
         let mut line = String::new();
-        self.file.read_line(&mut line)?;
+        self.br.read_line(&mut line)?;
 
         let mut replaced_line = line.replace("\t", " ");
 
