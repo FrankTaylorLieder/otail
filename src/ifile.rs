@@ -2,11 +2,12 @@ use anyhow::Result;
 use log::{debug, error, info, trace, warn};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek};
+use std::io::BufReader;
 use std::path::PathBuf;
 use tokio::select;
 use tokio::sync::mpsc;
 
+use crate::backing_file::BackingFile;
 use crate::common::CHANNEL_BUFFER;
 use crate::reader::{Reader, ReaderUpdate, ReaderUpdateReceiver};
 
@@ -80,11 +81,6 @@ struct Client<L> {
 #[derive(Debug)]
 struct Clients {
     clients: HashMap<String, Client<String>>,
-}
-
-#[derive(Debug)]
-struct BackingFile {
-    file: BufReader<File>,
 }
 
 #[derive(Debug)]
@@ -302,7 +298,7 @@ impl IFile {
                     }
                     Some(sl) => {
                         let backing_file = &mut self.backing_file;
-                        let line_content = backing_file.read_line(sl)?.clone();
+                        let line_content = backing_file.read_line(sl.offset as u64)?.clone();
 
                         trace!("Returning line: {}", line_no);
                         client
@@ -372,7 +368,7 @@ impl IFile {
                     };
 
                     let backing_file = &mut self.backing_file;
-                    let line_content = backing_file.read_line(l)?.clone();
+                    let line_content = backing_file.read_line(l.offset as u64)?.clone();
 
                     trace!("Forwaring missing line: {}", i);
                     client
@@ -399,35 +395,6 @@ impl IFile {
                 client.tailing = false;
                 Ok(())
             }
-        }
-    }
-}
-
-impl BackingFile {
-    fn read_line(&mut self, sl: &SLine) -> Result<String> {
-        self.file.seek(io::SeekFrom::Start(sl.offset))?;
-
-        let mut line = String::new();
-        self.file.read_line(&mut line)?;
-
-        let mut replaced_line = line.replace("\t", " ");
-
-        // Remove trailing newline if present
-        BackingFile::trim_line_end(&mut replaced_line);
-
-        Ok(replaced_line)
-    }
-
-    fn trim_line_end(line: &mut String) -> bool {
-        if line.ends_with('\n') {
-            line.pop();
-            if line.ends_with('\r') {
-                line.pop();
-            }
-
-            false
-        } else {
-            true
         }
     }
 }

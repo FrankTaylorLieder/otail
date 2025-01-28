@@ -284,15 +284,12 @@ Usability issues:
   - DONE Validation of path before starting up.
   - DONE Handling truncation
   - DONE Tailing filter, on truncation stops tailing
-
-Future enhancements:
-- Share line data using Arc<String> - reduce copying
-- Move around views by %
-- Show spooling progress on filter view.
 - DONE Bold the current line
-- Publish v0.1 on crates.io - rename to ttail
-- Scrolling whilst tailing... disable tailing when the viewport changes.
 
+Split backlog out to: BACKLOG
 
 BUG: Screen corruption.
+- The problem was rendering tabs messed things up.
+- Solution: replace tabs with SPACE for now... maybe in the future we can provide configurable tab widths and render correctly?
+- In the process refactor the file reading into backing_file.
 

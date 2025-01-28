@@ -1,0 +1,12 @@
+
+tail Backlog
+
+- Share line data using Arc<String> - reduce copying
+- Move around views by %
+- Show spooling progress on filter view.
+- Publish v0.1 on crates.io - rename to ttail
+- Scrolling whilst tailing... disable tailing when the viewport changes.
+- Make reader just return metadata and not the line data. Do all reads from ifile.
+  - We spend a lot of effort duplicating the content on spooling without using it.
+
+
