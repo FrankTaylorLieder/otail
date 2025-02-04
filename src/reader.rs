@@ -188,16 +188,3 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 
     Ok((watcher, rx))
 }
-
-fn trim_line_end(line: &mut String) -> bool {
-    if line.ends_with('\n') {
-        line.pop();
-        if line.ends_with('\r') {
-            line.pop();
-        }
-
-        false
-    } else {
-        true
-    }
-}
