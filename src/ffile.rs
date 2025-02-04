@@ -8,7 +8,7 @@ use regex::Regex;
 use tokio::select;
 use tokio::sync::mpsc;
 
-use crate::common::{LineContent, CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE};
+use crate::common::{replace_for_view, LineContent, CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE};
 use crate::ifile::{
     FileReq, FileReqReceiver, FileReqSender, FileResp, FileRespReceiver, FileRespSender, IFResp,
 };
@@ -111,7 +111,7 @@ impl LineContent for FilterLine {
     }
 
     fn render(&self) -> String {
-        self.line.clone()
+        replace_for_view(&self.line)
     }
 }
 

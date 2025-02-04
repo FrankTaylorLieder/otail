@@ -3,10 +3,11 @@ use log::{error, trace};
 use notify::event::{MetadataKind, ModifyKind};
 use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek};
 use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Receiver};
+
+use crate::backing_file::BackingFile;
 
 #[derive(Debug)]
 pub enum ReaderUpdate {
@@ -31,7 +32,8 @@ pub struct Reader {}
 impl Reader {
     pub async fn run(path: PathBuf, sender: ReaderUpdateSender) -> Result<()> {
         let metadata_file = File::open(&path)?;
-        let mut br = BufReader::new(File::open(&path)?);
+
+        let mut bf = BackingFile::new(&path)?;
 
         trace!("Opened file: {:?}", path);
 
@@ -51,18 +53,16 @@ impl Reader {
                 line_offset = pos;
             }
 
-            let len = br.read_line(&mut line)?;
-            let mut replaced_line = line.replace('\t', " ");
+            let (bytes, partial) = bf.incremental_read(&mut line)?;
 
-            trace!("Read line: {} @{} / {}", len, file_lines, replaced_line);
+            trace!("Read line: {} @{} / {}", bytes, file_lines, line);
 
-            if len == 0 {
+            if bytes == 0 {
                 break;
             }
 
-            line_bytes += len;
-            pos += len as u64;
-            partial = trim_line_end(&mut replaced_line);
+            line_bytes += bytes;
+            pos += bytes as u64;
 
             if !partial {
                 file_lines += 1;
@@ -71,7 +71,7 @@ impl Reader {
             sender
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.
-                    line_content: replaced_line.clone(),
+                    line_content: line.clone(),
                     offset: line_offset,
                     line_bytes,
                     partial,
@@ -100,7 +100,7 @@ impl Reader {
                         line_offset = 0;
                         pos = 0;
 
-                        br = BufReader::new(File::open(&path)?);
+                        bf = BackingFile::new(&path)?;
 
                         // TODO: Test tuncation... does this properly continue reading? Or do we
                         // need to restart spooling?
@@ -124,7 +124,7 @@ impl Reader {
                         continue;
                     }
 
-                    br.seek(std::io::SeekFrom::Start(pos))?;
+                    bf.seek(pos)?;
 
                     loop {
                         if !partial {
@@ -133,22 +133,19 @@ impl Reader {
                             line_offset = pos;
                         }
 
-                        let len = br.read_line(&mut line)?;
-                        let mut replaced_line = line.replace('\t', " ");
+                        let (bytes, partial) = bf.incremental_read(&mut line)?;
 
-                        if len == 0 {
+                        if bytes == 0 {
                             break;
                         }
 
-                        line_bytes += len;
-                        pos += len as u64;
-
-                        partial = trim_line_end(&mut replaced_line);
+                        line_bytes += bytes;
+                        pos += bytes as u64;
 
                         sender
                             .send(ReaderUpdate::Line {
                                 // Deliver the whole line each time we send the line.
-                                line_content: replaced_line.clone(),
+                                line_content: line.clone(),
                                 offset: line_offset,
                                 line_bytes,
                                 partial,

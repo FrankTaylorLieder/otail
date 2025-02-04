@@ -100,7 +100,7 @@ impl IFile {
 
         let (view_sender, view_receiver) = mpsc::channel(CHANNEL_BUFFER);
 
-        let backing_file = BackingFile::new(pb.clone())?;
+        let backing_file = BackingFile::new(&pb)?;
 
         let ifile = IFile {
             path: pb,
@@ -295,7 +295,7 @@ impl IFile {
                     }
                     Some(sl) => {
                         let backing_file = &mut self.backing_file;
-                        let line_content = backing_file.read_line(sl.offset as u64)?.clone();
+                        let line_content = backing_file.read_line(Some(sl.offset as u64))?.clone();
 
                         trace!("Returning line: {}", line_no);
                         client
@@ -365,7 +365,7 @@ impl IFile {
                     };
 
                     let backing_file = &mut self.backing_file;
-                    let line_content = backing_file.read_line(l.offset as u64)?.clone();
+                    let line_content = backing_file.read_line(Some(l.offset as u64))?.clone();
 
                     trace!("Forwaring missing line: {}", i);
                     client

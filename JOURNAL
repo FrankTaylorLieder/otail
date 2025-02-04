@@ -293,3 +293,4 @@ BUG: Screen corruption.
 - Solution: replace tabs with SPACE for now... maybe in the future we can provide configurable tab widths and render correctly?
 - In the process refactor the file reading into backing_file.
 
+NEXT: Use backing_file in reader.

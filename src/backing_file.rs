@@ -9,7 +9,7 @@ pub struct BackingFile {
 }
 
 impl BackingFile {
-    pub fn new(path: PathBuf) -> Result<Self> {
+    pub fn new(path: &PathBuf) -> Result<Self> {
         let file = File::open(path.clone())?;
         let bf = Self {
             br: BufReader::new(file),
@@ -18,18 +18,32 @@ impl BackingFile {
         Ok(bf)
     }
 
-    pub fn read_line(&mut self, offset: u64) -> Result<String> {
-        self.br.seek(io::SeekFrom::Start(offset))?;
+    pub fn read_line(&mut self, offset: Option<u64>) -> Result<String> {
+        if let Some(offset) = offset {
+            self.seek(offset)?;
+        }
 
         let mut line = String::new();
         self.br.read_line(&mut line)?;
 
-        let mut replaced_line = line.replace("\t", " ");
-
         // Remove trailing newline if present
-        BackingFile::trim_line_end(&mut replaced_line);
+        BackingFile::trim_line_end(&mut line);
 
-        Ok(replaced_line)
+        Ok(line)
+    }
+
+    pub fn seek(&mut self, offset: u64) -> Result<()> {
+        self.br.seek(io::SeekFrom::Start(offset))?;
+
+        Ok(())
+    }
+
+    pub fn incremental_read(&mut self, line: &mut String) -> Result<(usize, bool)> {
+        let bytes = self.br.read_line(line)?;
+
+        let partial = BackingFile::trim_line_end(line);
+
+        Ok((bytes, partial))
     }
 
     fn trim_line_end(line: &mut String) -> bool {

@@ -16,7 +16,7 @@ impl LineContent for String {
     }
 
     fn render(&self) -> String {
-        self.clone()
+        replace_for_view(self)
     }
 }
 
@@ -44,4 +44,8 @@ pub fn count_digits(n: usize) -> usize {
         return 1;
     }
     (n as f64).log10().floor() as usize + 1
+}
+
+pub fn replace_for_view(line: &String) -> String {
+    line.replace("\t", " ")
 }
