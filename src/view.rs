@@ -314,6 +314,21 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         .await
     }
 
+    pub async fn center_current_line(&mut self) -> Result<()> {
+        let height = self.get_viewport_height();
+        let bottom_half = height / 2;
+
+        let first_line = common::clamped_sub(self.current, bottom_half);
+
+        // TODO If there are too few lines below, move current down the screen.
+
+        self.set_viewport(LinesSlice {
+            first_line,
+            num_lines: height,
+        })
+        .await
+    }
+
     pub async fn set_height(&mut self, height: usize) -> Result<()> {
         // Change the height of the viewport, ensuring the current line is still on screen.
         // TODO: For the filter pane we want to expand the top of the window, not the bottom

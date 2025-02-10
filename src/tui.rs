@@ -399,6 +399,7 @@ impl Tui {
                         (KeyCode::Backspace | KeyCode::PageUp, _) => self.scroll_page(-1).await?,
                         (KeyCode::Char('g'), _) => self.top().await?,
                         (KeyCode::Char('G'), _) => self.bottom().await?,
+                        (KeyCode::Char('z'), _) => self.center().await?,
 
                         (KeyCode::Char('H'), KeyModifiers::SHIFT) => self.pan(-20).await?,
                         (KeyCode::Char('L'), KeyModifiers::SHIFT) => self.pan(20).await?,
@@ -492,6 +493,8 @@ impl Tui {
         self.content_state.view.set_current(line_no).await?;
         self.content_scroll_state = self.content_scroll_state.position(line_no);
 
+        self.content_state.view.center_current_line().await?;
+
         Ok(())
     }
 
@@ -565,6 +568,14 @@ impl Tui {
             self.filter_state.view.get_stats().file_lines
         };
         self.place(file_lines - 1).await
+    }
+
+    async fn center(&mut self) -> Result<()> {
+        if self.current_window {
+            self.content_state.view.center_current_line().await
+        } else {
+            self.filter_state.view.center_current_line().await
+        }
     }
 
     async fn resize(&mut self, delta: isize) {

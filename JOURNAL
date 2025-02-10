@@ -293,3 +293,11 @@ FIXED: Screen corruption.
 - Solution: replace tabs with SPACE for now... maybe in the future we can provide configurable tab widths and render correctly?
 - In the process refactor the file reading into backing_file.
 
+Commit: d1c2afe
+
+Feature: Center current line in window. Also, sync should center.
+- Adding z keybind to center the current line in the pane.
+- Sync will also center the content pane.
+
+
+

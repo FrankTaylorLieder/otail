@@ -83,6 +83,8 @@ Note: the key bindings may change before this reaches its first stable release.
     - Move to the end and start of lines.
   - `g`, `G`
     - Move to the first/last line of the file.
+  = `z`
+    - Center the current line in the window.
 
 - Pane
   - `TAB`
