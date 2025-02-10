@@ -302,4 +302,5 @@ Feature: Center current line in window. Also, sync should center.
 Commit: 31b9afc
 
 Feature: Cancel tailing when moving in a pane.
-
+- Cancel tailing when manually changing the current line in a pane.
+- Cancel tailing in the content pane when syncing from the filter pane.
