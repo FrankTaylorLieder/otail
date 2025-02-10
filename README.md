@@ -62,7 +62,8 @@ line in the filtered pane. Pressing `S` will toggle auto-sync, meaning whenever
 the current line of the filtered pane changes, the content pane will be synced.
 
 Finally, either pane can be toggled to tailing mode which automatically scrolls
-to any new content.
+to any new content. Tailing is cancelled in a pane when manually changing the
+current line or when the content is synced with the filter.
 
 ### Key bindings
 

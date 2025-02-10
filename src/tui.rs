@@ -495,6 +495,10 @@ impl Tui {
 
         self.content_state.view.center_current_line().await?;
 
+        // Cancel tailing on content if just synced.
+        self.content_tail = false;
+        self.content_state.view.set_tail(false).await?;
+
         Ok(())
     }
 
@@ -524,6 +528,8 @@ impl Tui {
             self.filter_scroll_state = self.filter_scroll_state.position(i);
             self.auto_sync_if_needed().await?;
         }
+
+        self.set_tail(false).await?;
 
         Ok(())
     }
@@ -572,10 +578,12 @@ impl Tui {
 
     async fn center(&mut self) -> Result<()> {
         if self.current_window {
-            self.content_state.view.center_current_line().await
+            self.content_state.view.center_current_line().await?;
         } else {
-            self.filter_state.view.center_current_line().await
+            self.filter_state.view.center_current_line().await?;
         }
+
+        Ok(())
     }
 
     async fn resize(&mut self, delta: isize) {
@@ -629,11 +637,19 @@ impl Tui {
 
     async fn toggle_tail(&mut self) -> Result<()> {
         if self.current_window {
-            self.content_tail = !self.content_tail;
-            self.content_state.view.set_tail(self.content_tail).await
+            self.set_tail(!self.content_tail).await
         } else {
-            self.filter_tail = !self.filter_tail;
-            self.filter_state.view.set_tail(self.filter_tail).await
+            self.set_tail(!self.filter_tail).await
+        }
+    }
+
+    async fn set_tail(&mut self, tail: bool) -> Result<()> {
+        if self.current_window {
+            self.content_tail = tail;
+            self.content_state.view.set_tail(tail).await
+        } else {
+            self.filter_tail = tail;
+            self.filter_state.view.set_tail(tail).await
         }
     }
 

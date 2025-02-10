@@ -299,5 +299,7 @@ Feature: Center current line in window. Also, sync should center.
 - Adding z keybind to center the current line in the pane.
 - Sync will also center the content pane.
 
+Commit: 31b9afc
 
+Feature: Cancel tailing when moving in a pane.
 
