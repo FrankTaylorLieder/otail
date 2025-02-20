@@ -1,6 +1,5 @@
 use anyhow::Result;
 use log::{error, trace};
-use notify::event::{MetadataKind, ModifyKind};
 use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
 use std::fs::{self, File};
 use std::path::PathBuf;
