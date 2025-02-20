@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::{error, trace};
 use notify::event::{MetadataKind, ModifyKind};
 use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
-use std::fs::File;
+use std::fs::{self, File};
 use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Receiver};
@@ -83,29 +83,11 @@ impl Reader {
         // Now tail the file.
         trace!("Tailing file: {:?} {} lines", path, file_lines);
         let (mut watcher, mut rx) = async_watcher()?;
-        watcher.watch(path.as_ref(), notify::RecursiveMode::Recursive)?;
+        watcher.watch(&path, notify::RecursiveMode::Recursive)?;
 
         while let Some(m) = rx.recv().await {
             match m {
                 Ok(event) => {
-                    // TODO: Should this be a match to only work with the cases we want?
-                    if let EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)) = event.kind {
-                        trace!("File truncated: {:?}", path);
-
-                        sender.send(ReaderUpdate::Truncated).await?;
-
-                        line.clear();
-                        line_bytes = 0;
-                        partial = false;
-                        line_offset = 0;
-                        pos = 0;
-
-                        bf = BackingFile::new(&path)?;
-
-                        // TODO: Test tuncation... does this properly continue reading? Or do we
-                        // need to restart spooling?
-                    }
-
                     if let EventKind::Remove(_) = event.kind {
                         trace!("File or directory removed: {:?}", path);
 
@@ -116,6 +98,29 @@ impl Reader {
                             .await?;
 
                         return Ok(());
+                    }
+
+                    let new_size = fs::metadata(&path)?.len();
+
+                    if new_size < pos {
+                        // TODO: Is there a way to detect file truncation where the new content is
+                        // longer than the old content?
+                        trace!(
+                            "File truncated: {:?}, old size: {}, new size: {}",
+                            path,
+                            pos,
+                            new_size
+                        );
+
+                        sender.send(ReaderUpdate::Truncated).await?;
+
+                        line.clear();
+                        line_bytes = 0;
+                        partial = false;
+                        line_offset = 0;
+                        pos = 0;
+
+                        bf = BackingFile::new(&path)?;
                     }
 
                     let fmd = metadata_file.metadata()?;
