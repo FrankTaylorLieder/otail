@@ -201,7 +201,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
 
     // Sync methods... callable from the TUI render function.
     //
-    pub fn get_line(&mut self, line_no: usize) -> Option<L> {
+    pub fn get_line(&self, line_no: usize) -> Option<L> {
         self.line_cache.get_line(line_no)
     }
 
@@ -211,6 +211,14 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
 
     pub fn current(&self) -> usize {
         self.current
+    }
+
+    pub fn current_line_length(&self) -> usize {
+        if let Some(line) = self.get_line(self.current) {
+            return line.len();
+        }
+
+        0
     }
 
     pub fn range(&self) -> Range<usize> {
@@ -237,12 +245,9 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
     }
 
     pub fn pan_end(&mut self, width: usize) {
-        self.start_point = clamped_add(
-            self.longest_line_length,
-            (width as isize) * -1,
-            0,
-            self.longest_line_length,
-        );
+        let current_line_len = self.current_line_length();
+        self.start_point =
+            clamped_add(current_line_len, (width as isize) * -1, 0, current_line_len);
     }
 
     // Async methods... callable from the TUI event loop.

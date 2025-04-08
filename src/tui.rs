@@ -46,6 +46,7 @@ use crate::{
 
 const MARGIN_EXTRAS: usize = 1; // Allow space between line number ond content
 const SCROLLBAR_EXTRAS: usize = 1; // Allow space for scrollbar
+const TOTAL_EXTRAS: usize = MARGIN_EXTRAS + SCROLLBAR_EXTRAS;
 
 #[derive(Debug)]
 struct LazyState<T, L> {
@@ -599,12 +600,12 @@ impl Tui {
         if self.current_window {
             self.content_state.view.pan(
                 delta,
-                self.content_state.width_hint - self.line_no_width + MARGIN_EXTRAS,
+                self.content_state.width_hint - self.line_no_width - TOTAL_EXTRAS,
             );
         } else {
             self.filter_state.view.pan(
                 delta,
-                self.content_state.width_hint - self.line_no_width + MARGIN_EXTRAS,
+                self.filter_state.width_hint - self.line_no_width - TOTAL_EXTRAS,
             );
         };
 
@@ -625,11 +626,11 @@ impl Tui {
         if self.current_window {
             self.content_state
                 .view
-                .pan_end(self.content_state.width_hint - self.line_no_width);
+                .pan_end(self.content_state.width_hint - self.line_no_width - TOTAL_EXTRAS);
         } else {
             self.filter_state
                 .view
-                .pan_end(self.content_state.width_hint - self.line_no_width);
+                .pan_end(self.filter_state.width_hint - self.line_no_width - TOTAL_EXTRAS);
         }
 
         Ok(())
