@@ -80,7 +80,7 @@ Note: the key bindings may change before this reaches its first stable release.
     - Move up and down by a full screen.
   - `H`, `L`
     - Move left/right by 20 characters.
-  - `$`, `^`
+  - `$`, `0`
     - Move to the end and start of lines.
   - `g`, `G`
     - Move to the first/last line of the file.

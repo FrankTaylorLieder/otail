@@ -1,5 +1,4 @@
-
-tail Backlog
+otail Backlog
 
 - Share line data using Arc<String> - reduce copying
 - Move around views by %
@@ -7,5 +6,8 @@ tail Backlog
 - Publish v0.1 on crates.io - rename to ttail
 - Make reader just return metadata and not the line data. Do all reads from ifile.
   - We spend a lot of effort duplicating the content on spooling without using it.
-
+- Colour lines based on filter searches
+- Enable multiple filters
+- Enable structured format lines (e.g. CSV, json)
+- Soft line wrapping
 

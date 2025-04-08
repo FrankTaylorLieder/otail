@@ -405,7 +405,7 @@ impl Tui {
                         (KeyCode::Char('L'), KeyModifiers::SHIFT) => self.pan(20).await?,
                         (KeyCode::Char('h'), _) => self.pan(-1).await?,
                         (KeyCode::Char('l'), _) => self.pan(1).await?,
-                        (KeyCode::Char('^'), _) => self.pan_start().await?,
+                        (KeyCode::Char('0'), _) => self.pan_start().await?,
                         (KeyCode::Char('$'), _) => self.pan_end().await?,
 
                         (KeyCode::Char('=') | KeyCode::Char('+'), _) => self.resize(1).await,
