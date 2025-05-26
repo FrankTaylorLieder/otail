@@ -1,4 +1,6 @@
 #![allow(unused_imports, unused_variables)]
+use crate::common::FilterMode;
+use crate::common::FilterSpec;
 use anyhow::{bail, Result};
 use clap::builder::Styles;
 use crossterm::event::{EventStream, KeyModifiers};
@@ -39,7 +41,7 @@ use ratatui::{
 
 use crate::{
     common::{self, clamped_add, LineContent, CHANNEL_BUFFER, MS_PER_FRAME},
-    ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterLine, FilterMode, FilterSpec},
+    ffile::{FFReq, FFReqSender, FFResp, FFRespReceiver, FilterLine},
     ifile::{FileReqSender, FileRespReceiver, IFResp},
     view::View,
 };
