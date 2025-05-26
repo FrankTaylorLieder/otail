@@ -8,7 +8,9 @@ use regex::Regex;
 use tokio::select;
 use tokio::sync::mpsc;
 
-use crate::common::{replace_for_view, LineContent, CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE};
+use crate::common::{
+    replace_for_view, FilterSpec, LineContent, CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE,
+};
 use crate::ifile::{
     FileReq, FileReqReceiver, FileReqSender, FileResp, FileRespReceiver, FileRespSender, IFResp,
 };
@@ -25,32 +27,6 @@ pub type FilterReqRespReceiver = oneshot::Receiver<FFReqResp>;
 pub enum FFResp {
     ViewUpdate { update: FileResp<FilterLine> },
     Clear,
-}
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum FilterMode {
-    SimpleCaseSensitive,
-    SimpleCaseInsensitive,
-    Regex,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct FilterSpec {
-    pub filter: String,
-    pub mode: FilterMode,
-}
-
-impl FilterSpec {
-    pub fn render(&self) -> String {
-        format!(
-            "\"{}\" ({})",
-            self.filter,
-            match self.mode {
-                FilterMode::SimpleCaseSensitive => "Sensitive",
-                FilterMode::SimpleCaseInsensitive => "Insensitive",
-                FilterMode::Regex => "Regex",
-            }
-        )
-    }
 }
 
 #[derive(Debug, Clone)]

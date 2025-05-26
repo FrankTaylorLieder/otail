@@ -5,6 +5,33 @@ pub const MS_PER_FRAME: u64 = 2_000 / FPS;
 
 pub const FILTER_SPOOLING_BATCH_SIZE: usize = 10;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum FilterMode {
+    SimpleCaseSensitive,
+    SimpleCaseInsensitive,
+    Regex,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct FilterSpec {
+    pub filter: String,
+    pub mode: FilterMode,
+}
+
+impl FilterSpec {
+    pub fn render(&self) -> String {
+        format!(
+            "\"{}\" ({})",
+            self.filter,
+            match self.mode {
+                FilterMode::SimpleCaseSensitive => "Sensitive",
+                FilterMode::SimpleCaseInsensitive => "Insensitive",
+                FilterMode::Regex => "Regex",
+            }
+        )
+    }
+}
+
 pub trait LineContent {
     fn len(&self) -> usize;
     fn render(&self) -> String; // TODO: Return structure for better display

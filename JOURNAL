@@ -305,6 +305,11 @@ Feature: Cancel tailing when moving in a pane.
 - Cancel tailing when manually changing the current line in a pane.
 - Cancel tailing in the content pane when syncing from the filter pane.
 
+Commit: 612d96f
+
+- Change start of line key binding.
+- Fix panning
+
 Commit: 8f4f6ad
 
 Add unit tests. Staring ifile (to confirm tricky partial line handling).
@@ -316,3 +321,8 @@ Add unit tests. Staring ifile (to confirm tricky partial line handling).
   make debugging easier.
 - Move unit tests to main.
 - Added TODOs in code for more unit tests.
+
+Commit: ee7fde1
+
+- Feature: colouring
+
