@@ -1,3 +1,7 @@
+use anyhow::Result;
+use case_insensitive_string::CaseInsensitiveString;
+use regex::Regex;
+
 pub const CHANNEL_BUFFER: usize = 1000;
 
 pub const FPS: u64 = 20;
@@ -5,30 +9,65 @@ pub const MS_PER_FRAME: u64 = 2_000 / FPS;
 
 pub const FILTER_SPOOLING_BATCH_SIZE: usize = 10;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum FilterMode {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FilterType {
     SimpleCaseSensitive,
     SimpleCaseInsensitive,
     Regex,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct FilterSpec {
-    pub filter: String,
-    pub mode: FilterMode,
+    pub filter_type: FilterType,
+    pub filter_pattern: String,
+    regex: Option<Regex>,
 }
 
 impl FilterSpec {
+    pub fn new(filter_type: FilterType, filter_pattern: &str) -> Result<Self> {
+        Ok(FilterSpec {
+            filter_type: filter_type.clone(),
+            filter_pattern: filter_pattern.to_owned(),
+            regex: if filter_type == FilterType::Regex {
+                Some(Regex::new(filter_pattern)?)
+            } else {
+                None
+            },
+        })
+    }
     pub fn render(&self) -> String {
         format!(
             "\"{}\" ({})",
-            self.filter,
-            match self.mode {
-                FilterMode::SimpleCaseSensitive => "Sensitive",
-                FilterMode::SimpleCaseInsensitive => "Insensitive",
-                FilterMode::Regex => "Regex",
+            self.filter_pattern,
+            match self.filter_type {
+                FilterType::SimpleCaseSensitive => "Sensitive",
+                FilterType::SimpleCaseInsensitive => "Insensitive",
+                FilterType::Regex => "Regex",
             }
         )
+    }
+
+    pub fn matches(&self, line: &str) -> bool {
+        match self.filter_type {
+            FilterType::SimpleCaseSensitive => self.filter_pattern == line,
+            FilterType::SimpleCaseInsensitive => {
+                CaseInsensitiveString::new(&self.filter_pattern) == CaseInsensitiveString::new(line)
+            }
+            FilterType::Regex => {
+                if let Some(ref regex) = self.regex {
+                    regex.find(line).is_some()
+                } else {
+                    // TODO should we report this missing regex?
+                    false
+                }
+            }
+        }
+    }
+}
+
+impl PartialEq for FilterSpec {
+    fn eq(&self, other: &Self) -> bool {
+        self.filter_type == other.filter_type && self.filter_pattern == other.filter_pattern
     }
 }
 
