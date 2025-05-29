@@ -325,4 +325,12 @@ Add unit tests. Staring ifile (to confirm tricky partial line handling).
 Commit: ee7fde1
 
 - Feature: colouring
+  - Refactor FilterSpec
+    - Implement different filter methods
+    - Add filter types to FilterEdit window
+  - Define colouring definition in terms of FilterSpec
+    - Define some colours
+    - Start with a set of ColourSpecs hardwired
+  - Colour output based on current ColourSpecs
+  - Build ColourSpec UI
 
