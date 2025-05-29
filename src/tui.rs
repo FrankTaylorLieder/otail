@@ -1,6 +1,5 @@
 #![allow(unused_imports, unused_variables)]
-use crate::common::FilterMode;
-use crate::common::FilterSpec;
+use crate::common::{FilterSpec, FilterType};
 use anyhow::{bail, Result};
 use clap::builder::Styles;
 use crossterm::event::{EventStream, KeyModifiers};
@@ -9,6 +8,7 @@ use futures::{FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, info, trace, warn};
 use num_format::{Locale, ToFormattedString};
+use regex::Regex;
 use std::{
     fmt::Display,
     io::{self, stdout},
@@ -149,7 +149,7 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
 struct FilterEditState {
     enabled: bool,
     input: Input,
-    filter_spec: FilterSpec,
+    filter_type: FilterType,
 }
 
 pub struct Tui {
@@ -234,10 +234,8 @@ impl Tui {
                 cell_renders: 0,
             },
             filter_tail: false,
-            filter_spec: FilterSpec {
-                filter: "".to_owned(),
-                mode: FilterMode::Regex,
-            },
+            filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "")
+                .expect("Unexpected error building empty filter"),
             filter_enabled: false,
 
             current_window: true,
@@ -437,10 +435,9 @@ impl Tui {
                         (KeyCode::Enter, _) => {
                             trace!("TUI: Filter edit confirmed - enabled: {}, filter: '{}'", filter_edit.enabled, filter_edit.input.value());
                             self.filter_enabled = filter_edit.enabled;
-                            filter_spec_to_apply = Some(FilterSpec {
-                                filter: filter_edit.input.value().to_owned(),
-                                mode: filter_edit.filter_spec.mode.clone(),
-                            });
+                            let input = filter_edit.input.value();
+                            filter_spec_to_apply =
+                                Some(FilterSpec::new(filter_edit.filter_type.clone(), input)?);
                         }
                         (KeyCode::Char('t'), KeyModifiers::CONTROL) => {
                             filter_edit.enabled = !filter_edit.enabled;
@@ -675,8 +672,8 @@ impl Tui {
     fn start_edit_filter(&mut self) {
         self.filter_edit = Some(FilterEditState {
             enabled: true,
-            input: self.filter_spec.filter.as_str().into(),
-            filter_spec: self.filter_spec.clone(),
+            input: self.filter_spec.filter_pattern.clone().into(),
+            filter_type: self.filter_spec.filter_type.clone(),
         });
     }
 

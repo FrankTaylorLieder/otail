@@ -4,7 +4,6 @@ use tokio::sync::oneshot;
 
 use anyhow::{anyhow, Result};
 use log::{debug, trace, warn};
-use regex::Regex;
 use tokio::select;
 use tokio::sync::mpsc;
 
@@ -52,7 +51,6 @@ type LineNo = usize;
 
 struct FilterState {
     filter_spec: FilterSpec,
-    filter_re: Regex,
     matches: Vec<LineNo>,
     num_matches: usize,
     line_to_match: HashMap<usize, usize>,
@@ -62,10 +60,8 @@ struct FilterState {
 
 impl FilterState {
     fn make(filter_spec: FilterSpec) -> Result<Self> {
-        let filter_re = Regex::new(&filter_spec.filter)?;
         Ok(FilterState {
             filter_spec,
-            filter_re,
             matches: Vec::new(),
             line_to_match: HashMap::new(),
             num_matches: 0,
@@ -444,7 +440,7 @@ impl FFile {
 
         filter_state.next_line_expected += 1;
 
-        if filter_state.filter_re.find(&line_content).is_some() {
+        if filter_state.filter_spec.matches(&line_content) {
             trace!("Line matches...");
             // TODO: Can we be sure that the updates come in order?
             filter_state.matches.push(line_no);
