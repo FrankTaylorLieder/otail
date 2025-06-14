@@ -40,13 +40,13 @@ impl Reader {
         let mut pos = 0;
         let mut line = String::new();
         let mut line_bytes = 0;
-        let mut partial = false;
+        let mut previous_partial = false;
         let mut file_lines: usize = 0;
         let mut line_offset = 0;
 
         trace!("Spooling file: {:?}", path);
         loop {
-            if !partial {
+            if !previous_partial {
                 line.clear();
                 line_bytes = 0;
                 line_offset = pos;
@@ -63,7 +63,7 @@ impl Reader {
             line_bytes += bytes;
             pos += bytes as u64;
 
-            if !partial {
+            if !previous_partial {
                 file_lines += 1;
             }
 
@@ -77,6 +77,8 @@ impl Reader {
                     file_bytes: pos,
                 })
                 .await?;
+
+            previous_partial = partial;
         }
 
         // Now tail the file.
@@ -115,7 +117,7 @@ impl Reader {
 
                         line.clear();
                         line_bytes = 0;
-                        partial = false;
+                        previous_partial = false;
                         line_offset = 0;
                         pos = 0;
 
@@ -131,7 +133,7 @@ impl Reader {
                     bf.seek(pos)?;
 
                     loop {
-                        if !partial {
+                        if !previous_partial {
                             line.clear();
                             line_bytes = 0;
                             line_offset = pos;
@@ -156,6 +158,8 @@ impl Reader {
                                 file_bytes: pos,
                             })
                             .await?;
+
+                        previous_partial = partial;
                     }
                 }
                 Err(e) => {

@@ -90,6 +90,7 @@ pub struct IFile {
     lines: Vec<SLine>,
     file_lines: usize,
     file_bytes: u64,
+    previous_partial: bool,
     clients: Clients,
 }
 
@@ -110,6 +111,7 @@ impl IFile {
             lines: vec![],
             file_lines: 0,
             file_bytes: 0,
+            previous_partial: false,
             clients: Clients {
                 clients: HashMap::new(),
             },
@@ -188,37 +190,49 @@ impl IFile {
             } => {
                 let line_chars = line_content.len();
 
-                let updated_line_no = self.file_lines;
-                if partial {
-                    self.lines[updated_line_no] = SLine {
+                let file_line_updated = if self.previous_partial {
+                    // We know updated_line_no >= 1, as we cannot have a previous_partial before
+                    // the first line comes in.
+                    let file_line_updated = self.file_lines - 1;
+                    self.lines[file_line_updated] = SLine {
                         offset,
-                        _line_no: updated_line_no,
+                        _line_no: file_line_updated,
                         _line_chars: line_content.len(),
                         _line_bytes: line_bytes,
-                        partial: true,
-                    }
+                        partial,
+                    };
+
+                    file_line_updated
                 } else {
+                    let file_line_updated = self.file_lines;
                     self.lines.push(SLine {
                         offset,
-                        _line_no: updated_line_no,
+                        _line_no: file_line_updated,
                         _line_chars: line_content.len(),
                         _line_bytes: line_bytes,
-                        partial: false,
+                        partial,
                     });
                     self.file_lines += 1;
-                }
 
+                    file_line_updated
+                };
+
+                self.previous_partial = partial;
                 self.file_bytes = file_bytes;
 
                 trace!(
                     "Adding/updating line: {} / partial: {} / len: {}",
-                    updated_line_no,
+                    file_line_updated,
                     partial,
                     line_chars
                 );
 
                 for (id, client) in self.clients.clients.iter_mut() {
-                    trace!("Sending stats to client: {} - line {}", id, updated_line_no,);
+                    trace!(
+                        "Sending stats to client: {} - line {}",
+                        id,
+                        file_line_updated,
+                    );
                     client
                         .channel
                         .send(IFResp::ViewUpdate {
@@ -228,13 +242,13 @@ impl IFile {
                             },
                         })
                         .await?;
-                    if client.interested.remove(&updated_line_no) || client.tailing {
+                    if client.interested.remove(&file_line_updated) || client.tailing {
                         trace!("Sending line to client: {}", id);
                         client
                             .channel
                             .send(IFResp::ViewUpdate {
                                 update: FileResp::Line {
-                                    line_no: updated_line_no,
+                                    line_no: file_line_updated,
                                     line_content: line_content.clone(),
                                     partial,
                                 },
