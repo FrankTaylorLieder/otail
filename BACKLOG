@@ -10,4 +10,5 @@ otail Backlog
 - Enable multiple filters
 - Enable structured format lines (e.g. CSV, json)
 - Soft line wrapping
+- Unit tests
 

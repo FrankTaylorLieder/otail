@@ -81,12 +81,13 @@ struct Clients {
     clients: HashMap<String, Client<String>>,
 }
 
+/// Provide access to a file on disk, for random access and watching for changes.
 #[derive(Debug)]
-pub struct IFile {
+pub struct IFile<BF: BackingFile> {
     view_receiver: FileReqReceiver<IFResp<String>>,
     view_sender: FileReqSender<IFResp<String>>,
     path: PathBuf,
-    backing_file: BackingFile,
+    backing_file: BF,
     lines: Vec<SLine>,
     file_lines: usize,
     file_bytes: u64,
@@ -94,16 +95,14 @@ pub struct IFile {
     clients: Clients,
 }
 
-impl IFile {
-    pub fn new(path: &str) -> Result<IFile> {
+impl<BF: BackingFile> IFile<BF> {
+    pub fn new(path: &str, backing_file: BF) -> IFile<BF> {
         let mut pb = PathBuf::new();
         pb.push(path);
 
         let (view_sender, view_receiver) = mpsc::channel(CHANNEL_BUFFER);
 
-        let backing_file = BackingFile::new(&pb)?;
-
-        let ifile = IFile {
+        IFile {
             path: pb,
             backing_file,
             view_receiver,
@@ -115,9 +114,7 @@ impl IFile {
             clients: Clients {
                 clients: HashMap::new(),
             },
-        };
-
-        Ok(ifile)
+        }
     }
 
     fn run_reader(&mut self) -> ReaderUpdateReceiver {
@@ -179,7 +176,10 @@ impl IFile {
         Ok(())
     }
 
-    async fn handle_reader_update(&mut self, update: ReaderUpdate) -> Result<bool> {
+    /// Handle an update from the reader.
+    ///
+    /// Returns boolean indicating if the file should be closed
+    async fn handle_reader_update(&mut self, update: ReaderUpdate) -> Result<()> {
         match update {
             ReaderUpdate::Line {
                 line_content,
@@ -256,7 +256,7 @@ impl IFile {
                             .await?;
                     }
                 }
-                Ok(false)
+                Ok(())
             }
             ReaderUpdate::Truncated => {
                 trace!("File truncated... resetting ifile");
@@ -269,7 +269,7 @@ impl IFile {
                     client.interested = HashSet::new();
                     client.channel.send(IFResp::Truncated).await?;
                 }
-                Ok(true)
+                Ok(())
             }
             ReaderUpdate::FileError { reason } => {
                 error!("File error: {:?}", reason);
@@ -284,7 +284,7 @@ impl IFile {
                         })
                         .await?;
                 }
-                Ok(false)
+                Ok(())
             }
         }
     }
@@ -412,8 +412,90 @@ impl IFile {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn test_hello() {
-        println!("Hello tests");
+    //use mockall::{mock, predicate::*};
+
+    use super::*;
+    use crate::backing_file::MockBackingFile;
+
+    #[tokio::test]
+    async fn test_ifile() {
+        let backing_file = MockBackingFile::new();
+        let mut ifile = IFile::new("test", backing_file);
+
+        let ifile_sender = ifile.get_view_sender();
+
+        let client_id = "test_client".to_owned();
+        let (client_sender, mut client_receiver) = mpsc::channel(CHANNEL_BUFFER);
+
+        let register_client = ifile_sender
+            .send(FileReq::RegisterClient {
+                id: client_id.clone(),
+                client_sender,
+            })
+            .await;
+
+        assert!(
+            register_client.is_ok(),
+            "Failed register client of file: {:?}",
+            register_client
+        );
+
+        let register_response = ifile_sender
+            .send(FileReq::EnableTailing {
+                id: client_id.clone(),
+                last_seen_line: 0,
+            })
+            .await;
+
+        assert!(
+            register_response.is_ok(),
+            "Failed to register tail for client: {:?}",
+            register_response
+        );
+
+        let mut file_bytes = 0_u64;
+
+        let line0 = "FirstFullLine".to_owned();
+        let line0_len = line0.len();
+        file_bytes += line0_len as u64;
+        let r = ifile
+            .handle_reader_update(ReaderUpdate::Line {
+                line_content: line0.clone(),
+                offset: 0,
+                line_bytes: line0_len,
+                partial: false,
+                file_bytes,
+            })
+            .await;
+
+        assert!(r.is_ok(), "Expected Ok for line0, got {:?}", r);
+
+        let m1 = client_receiver.try_recv();
+        assert!(m1.is_ok(), "Failed to receive client message: {:?}", m1);
+
+        if let IFResp::ViewUpdate {
+            update:
+                FileResp::Line {
+                    line_no,
+                    line_content,
+                    partial,
+                },
+        } = m1.unwrap()
+        {
+            assert_eq!(line_no, 0, "Wrong line numner: {:?}", line_no);
+            assert_eq!(
+                line_content,
+                line0.clone(),
+                "Wrong line content: {:?}",
+                line_content
+            );
+            assert_eq!(partial, false, "Incorrect partial: {:?}", partial);
+        } else {
+            panic!("Incorrect response");
+        }
+
+        XXX Not working... need to debug test
+
+        // XXX Check the mock calls - probably none in this case
     }
 }

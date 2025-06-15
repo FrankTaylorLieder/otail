@@ -3,10 +3,10 @@ use std::{fs::File, io::stdout};
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
 use log::{error, info};
-use otail::ffile::FFile;
 use otail::ifile::IFile;
 use otail::panic::init_panic_handler;
 use otail::tui::Tui;
+use otail::{backing_file::FileBackingFile, ffile::FFile};
 
 use ratatui::{
     backend::CrosstermBackend,
@@ -44,7 +44,10 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("{}", message);
         return Ok(());
     }
-    let mut ifile = IFile::new(&args.path)?;
+    let mut ifile = IFile::new(
+        &args.path,
+        FileBackingFile::new_from_path(&args.path.clone())?,
+    );
     let mut ffile = FFile::new("ff".to_owned(), &args.path, ifile.get_view_sender());
 
     let tui = Tui::new(

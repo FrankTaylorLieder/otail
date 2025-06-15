@@ -304,3 +304,11 @@ Commit: 31b9afc
 Feature: Cancel tailing when moving in a pane.
 - Cancel tailing when manually changing the current line in a pane.
 - Cancel tailing in the content pane when syncing from the filter pane.
+
+Commit: 8f4f6ad
+
+Add unit tests. Staring ifile (to confirm tricky partial line handling).
+- Refactor ifile to take simple channels for in and outbound events.
+  - Move instantiation of readers and backing files to utility functions.
+  - Make traits for the backing_file and readers. 
+  - Use `mockall` to mock these traits

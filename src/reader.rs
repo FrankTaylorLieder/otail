@@ -1,3 +1,4 @@
+use crate::backing_file::BackingFile;
 use anyhow::Result;
 use log::{error, trace};
 use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
@@ -6,7 +7,7 @@ use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Receiver};
 
-use crate::backing_file::BackingFile;
+use crate::backing_file::FileBackingFile;
 
 #[derive(Debug)]
 pub enum ReaderUpdate {
@@ -32,7 +33,7 @@ impl Reader {
     pub async fn run(path: PathBuf, sender: ReaderUpdateSender) -> Result<()> {
         let metadata_file = File::open(&path)?;
 
-        let mut bf = BackingFile::new(&path)?;
+        let mut bf = FileBackingFile::new(&path)?;
 
         trace!("Opened file: {:?}", path);
 
@@ -121,7 +122,7 @@ impl Reader {
                         line_offset = 0;
                         pos = 0;
 
-                        bf = BackingFile::new(&path)?;
+                        bf = FileBackingFile::new(&path)?;
                     }
 
                     let fmd = metadata_file.metadata()?;
