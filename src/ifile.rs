@@ -412,8 +412,133 @@ impl IFile {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
     #[test]
-    fn test_hello() {
-        println!("Hello tests");
+    fn test_file_req_variants() {
+        let req = FileReq::<String>::GetLine {
+            id: "test".to_string(),
+            line_no: 42,
+        };
+        
+        match req {
+            FileReq::GetLine { id, line_no } => {
+                assert_eq!(id, "test");
+                assert_eq!(line_no, 42);
+            },
+            _ => panic!("Should be GetLine variant"),
+        }
+
+        let req = FileReq::<String>::CancelLine {
+            id: "test".to_string(),
+            line_no: 5,
+        };
+        
+        match req {
+            FileReq::CancelLine { id, line_no } => {
+                assert_eq!(id, "test");
+                assert_eq!(line_no, 5);
+            },
+            _ => panic!("Should be CancelLine variant"),
+        }
+
+        let (sender, _receiver) = mpsc::channel(10);
+        let req = FileReq::<String>::RegisterClient {
+            id: "client".to_string(),
+            client_sender: sender,
+        };
+        
+        match req {
+            FileReq::RegisterClient { id, .. } => {
+                assert_eq!(id, "client");
+            },
+            _ => panic!("Should be RegisterClient variant"),
+        }
+
+        let req = FileReq::<String>::EnableTailing {
+            id: "test".to_string(),
+            last_seen_line: 100,
+        };
+        
+        match req {
+            FileReq::EnableTailing { id, last_seen_line } => {
+                assert_eq!(id, "test");
+                assert_eq!(last_seen_line, 100);
+            },
+            _ => panic!("Should be EnableTailing variant"),
+        }
+
+        let req = FileReq::<String>::DisableTailing {
+            id: "test".to_string(),
+        };
+        
+        match req {
+            FileReq::DisableTailing { id } => {
+                assert_eq!(id, "test");
+            },
+            _ => panic!("Should be DisableTailing variant"),
+        }
     }
+
+    #[test]
+    fn test_file_resp_variants() {
+        let resp = FileResp::<String>::Stats {
+            file_lines: 100,
+            file_bytes: 1024,
+        };
+        
+        match resp {
+            FileResp::Stats { file_lines, file_bytes } => {
+                assert_eq!(file_lines, 100);
+                assert_eq!(file_bytes, 1024);
+            },
+            _ => panic!("Should be Stats variant"),
+        }
+
+        let resp = FileResp::<String>::Line {
+            line_no: 42,
+            line_content: "test line".to_string(),
+            partial: true,
+        };
+        
+        match resp {
+            FileResp::Line { line_no, line_content, partial } => {
+                assert_eq!(line_no, 42);
+                assert_eq!(line_content, "test line");
+                assert!(partial);
+            },
+            _ => panic!("Should be Line variant"),
+        }
+    }
+
+    #[test]
+    fn test_ifresp_variants() {
+        let resp = IFResp::<String>::ViewUpdate { 
+            update: FileResp::Stats { file_lines: 50, file_bytes: 512 }
+        };
+        
+        match resp {
+            IFResp::ViewUpdate { update } => {
+                match update {
+                    FileResp::Stats { file_lines, file_bytes } => {
+                        assert_eq!(file_lines, 50);
+                        assert_eq!(file_bytes, 512);
+                    },
+                    _ => panic!("Should be Stats update"),
+                }
+            },
+            _ => panic!("Should be ViewUpdate variant"),
+        }
+
+        let resp = IFResp::<String>::Truncated;
+        match resp {
+            IFResp::Truncated => assert!(true),
+            _ => panic!("Should be Truncated variant"),
+        }
+    }
+
+    // Note: Client struct is private and doesn't have a public `new` method
+    // LineReq is also not exposed in the public API
+    // These tests focus on the public API instead
 }

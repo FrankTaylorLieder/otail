@@ -304,3 +304,8 @@ Commit: 31b9afc
 Feature: Cancel tailing when moving in a pane.
 - Cancel tailing when manually changing the current line in a pane.
 - Cancel tailing in the content pane when syncing from the filter pane.
+
+Commit: dca5841
+
+Get Claude to add unit tests...
+

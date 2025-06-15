@@ -452,3 +452,237 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    #[derive(Debug, Clone, Default)]
+    struct TestLineContent(String);
+
+    impl LineContent for TestLineContent {
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+
+        fn render(&self) -> String {
+            self.0.clone()
+        }
+    }
+
+    fn create_test_channels() -> (FileReqSender<String>, FileRespSender<String>) {
+        let (req_sender, _req_receiver) = mpsc::channel(10);
+        let (resp_sender, _resp_receiver) = mpsc::channel(10);
+        (req_sender, resp_sender)
+    }
+
+    #[test]
+    fn test_lines_slice_range() {
+        let slice = LinesSlice {
+            first_line: 5,
+            num_lines: 10,
+        };
+        assert_eq!(slice.range(), 5..15);
+    }
+
+    #[test]
+    fn test_lines_slice_default() {
+        let slice = LinesSlice::default();
+        assert_eq!(slice.first_line, 0);
+        assert_eq!(slice.num_lines, 0);
+        assert_eq!(slice.range(), 0..0);
+    }
+
+    #[test]
+    fn test_line_cache_reset() {
+        let mut cache: LineCache<TestLineContent> = LineCache {
+            range: LinesSlice { first_line: 0, num_lines: 3 },
+            lines: vec![
+                Some(TestLineContent("line1".to_string())),
+                Some(TestLineContent("line2".to_string())),
+                Some(TestLineContent("line3".to_string())),
+            ],
+        };
+
+        let missing = cache.reset();
+        assert_eq!(missing, vec![0, 1, 2]);
+        assert_eq!(cache.lines.len(), 3);
+        assert!(cache.lines.iter().all(|l| l.is_none()));
+    }
+
+    #[test]
+    fn test_line_cache_set_viewport_no_overlap() {
+        let mut cache: LineCache<TestLineContent> = LineCache {
+            range: LinesSlice { first_line: 0, num_lines: 3 },
+            lines: vec![
+                Some(TestLineContent("line0".to_string())),
+                Some(TestLineContent("line1".to_string())),
+                Some(TestLineContent("line2".to_string())),
+            ],
+        };
+
+        let new_viewport = LinesSlice { first_line: 10, num_lines: 3 };
+        let missing = cache.set_viewport(new_viewport);
+        
+        assert_eq!(missing, vec![10, 11, 12]);
+        assert_eq!(cache.range.first_line, 10);
+        assert_eq!(cache.range.num_lines, 3);
+        assert!(cache.lines.iter().all(|l| l.is_none()));
+    }
+
+    #[test]
+    fn test_line_cache_set_viewport_with_overlap() {
+        let mut cache: LineCache<TestLineContent> = LineCache {
+            range: LinesSlice { first_line: 0, num_lines: 3 },
+            lines: vec![
+                Some(TestLineContent("line0".to_string())),
+                Some(TestLineContent("line1".to_string())),
+                Some(TestLineContent("line2".to_string())),
+            ],
+        };
+
+        let new_viewport = LinesSlice { first_line: 1, num_lines: 3 };
+        let missing = cache.set_viewport(new_viewport);
+        
+        assert_eq!(missing, vec![3]);
+        assert_eq!(cache.range.first_line, 1);
+        assert_eq!(cache.range.num_lines, 3);
+        
+        // line1 and line2 should be preserved in new positions
+        assert_eq!(cache.lines[0].as_ref().unwrap().0, "line1");
+        assert_eq!(cache.lines[1].as_ref().unwrap().0, "line2");
+        assert!(cache.lines[2].is_none()); // line 3 is missing
+    }
+
+    #[test]
+    fn test_line_cache_set_line_in_range() {
+        let mut cache: LineCache<TestLineContent> = LineCache {
+            range: LinesSlice { first_line: 5, num_lines: 3 },
+            lines: vec![None, None, None],
+        };
+
+        let result = cache.set_line(6, TestLineContent("test line".to_string()), false);
+        assert!(result);
+        assert_eq!(cache.lines[1].as_ref().unwrap().0, "test line");
+    }
+
+    #[test]
+    fn test_line_cache_set_line_out_of_range() {
+        let mut cache: LineCache<TestLineContent> = LineCache {
+            range: LinesSlice { first_line: 5, num_lines: 3 },
+            lines: vec![None, None, None],
+        };
+
+        let result = cache.set_line(10, TestLineContent("test line".to_string()), false);
+        assert!(!result);
+        assert!(cache.lines.iter().all(|l| l.is_none()));
+    }
+
+    #[test]
+    fn test_line_cache_set_line_tailing() {
+        let mut cache: LineCache<TestLineContent> = LineCache {
+            range: LinesSlice { first_line: 5, num_lines: 3 },
+            lines: vec![
+                Some(TestLineContent("line5".to_string())),
+                Some(TestLineContent("line6".to_string())),
+                Some(TestLineContent("line7".to_string())),
+            ],
+        };
+
+        // Line 8 is the next line after current buffer (5+3=8)
+        let result = cache.set_line(8, TestLineContent("line8".to_string()), true);
+        assert!(result);
+        
+        // Should have shifted the buffer
+        assert_eq!(cache.range.first_line, 6);
+        assert_eq!(cache.lines[0].as_ref().unwrap().0, "line6");
+        assert_eq!(cache.lines[1].as_ref().unwrap().0, "line7");
+        assert_eq!(cache.lines[2].as_ref().unwrap().0, "line8");
+    }
+
+    #[test]
+    fn test_line_cache_get_line() {
+        let mut cache: LineCache<TestLineContent> = LineCache {
+            range: LinesSlice { first_line: 5, num_lines: 3 },
+            lines: vec![
+                Some(TestLineContent("line5".to_string())),
+                None,
+                Some(TestLineContent("line7".to_string())),
+            ],
+        };
+
+        assert_eq!(cache.get_line(5).unwrap().0, "line5");
+        assert!(cache.get_line(6).is_none());
+        assert_eq!(cache.get_line(7).unwrap().0, "line7");
+        assert!(cache.get_line(10).is_none()); // Out of range
+    }
+
+    #[tokio::test]
+    async fn test_view_new() {
+        let (req_sender, resp_sender) = create_test_channels();
+        let view: View<String, TestLineContent> = View::new(
+            "test_view".to_string(),
+            req_sender,
+            resp_sender,
+        );
+
+        assert_eq!(view.id, "test_view");
+        assert_eq!(view.current, 0);
+        assert_eq!(view.start_point, 0);
+        assert!(!view.tailing);
+    }
+
+    #[test]
+    fn test_view_pan() {
+        let (req_sender, resp_sender) = create_test_channels();
+        let mut view: View<String, TestLineContent> = View::new(
+            "test_view".to_string(),
+            req_sender,
+            resp_sender,
+        );
+        view.longest_line_length = 100;
+
+        // Pan right by 10
+        view.pan(10, 50);
+        assert_eq!(view.start_point, 10);
+
+        // Pan left by 5
+        view.pan(-5, 50);
+        assert_eq!(view.start_point, 5);
+
+        // Try to pan beyond limits
+        view.pan(1000, 50);
+        assert_eq!(view.start_point, 50); // Should clamp to max (100 - 50)
+    }
+
+    #[test]
+    fn test_view_pan_start_and_end() {
+        let (req_sender, resp_sender) = create_test_channels();
+        let mut view: View<String, TestLineContent> = View::new(
+            "test_view".to_string(),
+            req_sender,
+            resp_sender,
+        );
+        view.start_point = 25;
+
+        view.pan_start();
+        assert_eq!(view.start_point, 0);
+
+        // Set up a current line and test pan_end
+        view.line_cache.range = LinesSlice { first_line: 0, num_lines: 1 };
+        view.line_cache.lines = vec![Some(TestLineContent("a".repeat(100)))];
+        view.current = 0;
+        view.longest_line_length = 100;
+
+        view.pan_end(20);
+        assert_eq!(view.start_point, 80); // 100 - 20
+    }
+
+    #[test]
+    fn test_stats_default() {
+        let stats = Stats::default();
+        assert_eq!(stats.file_lines, 0);
+        assert_eq!(stats.file_bytes, 0);
+    }
+}

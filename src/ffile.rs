@@ -576,3 +576,184 @@ impl FFile {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_filter_mode_eq() {
+        assert_eq!(FilterMode::SimpleCaseSensitive, FilterMode::SimpleCaseSensitive);
+        assert_eq!(FilterMode::SimpleCaseInsensitive, FilterMode::SimpleCaseInsensitive);
+        assert_eq!(FilterMode::Regex, FilterMode::Regex);
+        assert_ne!(FilterMode::SimpleCaseSensitive, FilterMode::SimpleCaseInsensitive);
+    }
+
+    #[test]
+    fn test_filter_spec_render() {
+        let spec = FilterSpec {
+            filter: "test".to_string(),
+            mode: FilterMode::SimpleCaseSensitive,
+        };
+        assert_eq!(spec.render(), "\"test\" (Sensitive)");
+
+        let spec = FilterSpec {
+            filter: "test".to_string(),
+            mode: FilterMode::SimpleCaseInsensitive,
+        };
+        assert_eq!(spec.render(), "\"test\" (Insensitive)");
+
+        let spec = FilterSpec {
+            filter: "test".to_string(),
+            mode: FilterMode::Regex,
+        };
+        assert_eq!(spec.render(), "\"test\" (Regex)");
+    }
+
+    #[test]
+    fn test_filter_spec_eq() {
+        let spec1 = FilterSpec {
+            filter: "test".to_string(),
+            mode: FilterMode::SimpleCaseSensitive,
+        };
+        let spec2 = FilterSpec {
+            filter: "test".to_string(),
+            mode: FilterMode::SimpleCaseSensitive,
+        };
+        let spec3 = FilterSpec {
+            filter: "different".to_string(),
+            mode: FilterMode::SimpleCaseSensitive,
+        };
+
+        assert_eq!(spec1, spec2);
+        assert_ne!(spec1, spec3);
+    }
+
+    #[test]
+    fn test_filter_state_make_valid_regex() {
+        let spec = FilterSpec {
+            filter: r"test\d+".to_string(),
+            mode: FilterMode::Regex,
+        };
+        
+        let result = FilterState::make(spec);
+        assert!(result.is_ok());
+        
+        let state = result.unwrap();
+        assert_eq!(state.filter_spec.filter, r"test\d+");
+        assert_eq!(state.matches.len(), 0);
+        assert_eq!(state.num_matches, 0);
+        assert_eq!(state.next_line_expected, 0);
+        assert_eq!(state.next_line_to_request, 0);
+    }
+
+    #[test]
+    fn test_filter_state_make_invalid_regex() {
+        let spec = FilterSpec {
+            filter: "[invalid regex".to_string(),
+            mode: FilterMode::Regex,
+        };
+        
+        let result = FilterState::make(spec);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_filter_line_line_content_trait() {
+        let filter_line = FilterLine {
+            line_no: 42,
+            line: "test line with\ttab".to_string(),
+        };
+
+        assert_eq!(filter_line.len(), 18); // Length of "test line with\ttab"
+        assert_eq!(filter_line.render(), "test line with tab"); // Tab replaced with space
+    }
+
+    #[test]
+    fn test_filter_line_default() {
+        let filter_line = FilterLine::default();
+        assert_eq!(filter_line.line_no, 0);
+        assert_eq!(filter_line.line, "");
+    }
+
+    #[test]
+    fn test_ff_req_resp_variants() {
+        let ok_resp = FFReqResp::Ok;
+        let err_resp = FFReqResp::Err { 
+            message: "Test error".to_string() 
+        };
+
+        match ok_resp {
+            FFReqResp::Ok => assert!(true),
+            _ => assert!(false, "Should be Ok variant"),
+        }
+
+        match err_resp {
+            FFReqResp::Err { message } => assert_eq!(message, "Test error"),
+            _ => assert!(false, "Should be Err variant"),
+        }
+    }
+
+    #[test]
+    fn test_ff_req_variants() {
+        let filter_spec = FilterSpec {
+            filter: "test".to_string(),
+            mode: FilterMode::Regex,
+        };
+        
+        let req_with_filter = FFReq::SetFilter { 
+            filter_spec: Some(filter_spec.clone()) 
+        };
+        let req_without_filter = FFReq::SetFilter { 
+            filter_spec: None 
+        };
+
+        match req_with_filter {
+            FFReq::SetFilter { filter_spec: Some(spec) } => {
+                assert_eq!(spec.filter, "test");
+                assert_eq!(spec.mode, FilterMode::Regex);
+            },
+            _ => assert!(false, "Should have filter spec"),
+        }
+
+        match req_without_filter {
+            FFReq::SetFilter { filter_spec: None } => assert!(true),
+            _ => assert!(false, "Should have no filter spec"),
+        }
+    }
+
+    #[test]
+    fn test_ff_resp_variants() {
+        let line_resp = FFResp::ViewUpdate { 
+            update: FileResp::Line {
+                line_no: 1,
+                line_content: FilterLine {
+                    line_no: 10,
+                    line: "test".to_string(),
+                },
+                partial: false,
+            }
+        };
+        let clear_resp = FFResp::Clear;
+
+        match line_resp {
+            FFResp::ViewUpdate { update } => {
+                match update {
+                    FileResp::Line { line_no, line_content, partial } => {
+                        assert_eq!(line_no, 1);
+                        assert_eq!(line_content.line_no, 10);
+                        assert_eq!(line_content.line, "test");
+                        assert!(!partial);
+                    },
+                    _ => assert!(false, "Should be Line response"),
+                }
+            },
+            _ => assert!(false, "Should be ViewUpdate"),
+        }
+
+        match clear_resp {
+            FFResp::Clear => assert!(true),
+            _ => assert!(false, "Should be Clear"),
+        }
+    }
+}
