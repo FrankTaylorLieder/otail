@@ -312,3 +312,4 @@ Add unit tests. Staring ifile (to confirm tricky partial line handling).
   - Move instantiation of readers and backing files to utility functions.
   - Make traits for the backing_file and readers. 
   - Use `mockall` to mock these traits
+- Compare/combine with claude unit tests in other branch
