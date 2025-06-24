@@ -68,6 +68,7 @@ impl Reader {
                 file_lines += 1;
             }
 
+            trace!("Sending ReaderUpdate::Line (spooling) - line_bytes: {}, partial: {}, file_bytes: {}", line_bytes, partial, pos);
             sender
                 .send(ReaderUpdate::Line {
                     // Deliver the whole line each time we send the line.
@@ -87,12 +88,15 @@ impl Reader {
         let (mut watcher, mut rx) = async_watcher()?;
         watcher.watch(&path, notify::RecursiveMode::Recursive)?;
 
+        trace!("Waiting to receive file system events for path: {:?}", path);
         while let Some(m) = rx.recv().await {
+            trace!("Received file system event: {:?}", m);
             match m {
                 Ok(event) => {
                     if let EventKind::Remove(_) = event.kind {
                         trace!("File or directory removed: {:?}", path);
 
+                        trace!("Sending ReaderUpdate::FileError - reason: File removed");
                         sender
                             .send(ReaderUpdate::FileError {
                                 reason: "File removed".to_owned(),
@@ -114,6 +118,7 @@ impl Reader {
                             new_size
                         );
 
+                        trace!("Sending ReaderUpdate::Truncated - old_size: {}, new_size: {}", pos, new_size);
                         sender.send(ReaderUpdate::Truncated).await?;
 
                         line.clear();
@@ -149,6 +154,7 @@ impl Reader {
                         line_bytes += bytes;
                         pos += bytes as u64;
 
+                        trace!("Sending ReaderUpdate::Line (tailing) - line_bytes: {}, partial: {}, file_bytes: {}, content_preview: {:?}", line_bytes, partial, pos, line.chars().take(50).collect::<String>());
                         sender
                             .send(ReaderUpdate::Line {
                                 // Deliver the whole line each time we send the line.
@@ -166,6 +172,7 @@ impl Reader {
                 Err(e) => {
                     let reason = format!("Watcher failed: {:?} - {:?}", path, e);
                     error!("{}", reason);
+                    trace!("Sending ReaderUpdate::FileError - reason: {}", reason);
                     sender
                         .send(ReaderUpdate::FileError {
                             reason: reason.clone(),
@@ -189,6 +196,7 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
             let runtime = Runtime::new().expect("Cannot create Tokio runtime for watcher");
             let tx = tx.clone();
             runtime.block_on(async move {
+                trace!("Forwarding watch event: {:?}", res);
                 tx.send(res).await.expect("Failed to send watch event");
             });
         },

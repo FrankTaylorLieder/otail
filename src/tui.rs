@@ -323,7 +323,7 @@ impl Tui {
                     }
                 },
                 content_resp = self.content_ifresp_recv.recv() => {
-                    trace!("Content resp: {:?}", content_resp);
+                    trace!("TUI: Received content response from IFile channel: {:?}", content_resp);
                     dirty = true;
                     match content_resp {
                         None => {
@@ -333,15 +333,18 @@ impl Tui {
                         Some(cr) => {
                             match cr {
                                 IFResp::ViewUpdate { update } => {
+                                    trace!("TUI: Processing content view update: {:?}", update);
                                     self.content_state.view.handle_update(update).await;
                                 }
                                 IFResp::Truncated => {
+                                    trace!("TUI: Content file truncated, resetting views");
                                     debug!("{}: File truncated", self.path);
 
                                     self.content_state.view.reset().await?;
                                     self.filter_state.view.reset().await?;
                                 }
                                 IFResp::FileError { reason } => {
+                                    trace!("TUI: Content file error received: {}", reason);
                                     error!("{}: File error: {reason}", self.path);
 
                                     // TODO: Put this in a dlg...
@@ -353,7 +356,7 @@ impl Tui {
                     self.line_no_width = common::count_digits(self.content_state.view.get_stats().file_lines) + MARGIN_EXTRAS;
                 },
                 filter_resp = self.filter_ffresp_recv.recv() => {
-                    trace!("Filter resp: {:?}", filter_resp);
+                    trace!("TUI: Received filter response from FFile channel: {:?}", filter_resp);
                     dirty = true;
                     match filter_resp {
                         None => {
@@ -363,13 +366,16 @@ impl Tui {
                         Some(fr) => {
                             match fr {
                                 FFResp::ViewUpdate { update } => {
+                                    trace!("TUI: Processing filter view update: {:?}", update);
                                     self.filter_state.view.handle_update(update).await;
                                 }
                                 FFResp::Clear => {
+                                    trace!("TUI: Filter cleared, resetting filter view");
                                     self.filter_state.view.reset().await?;
                                 }
                             }
 
+                            trace!("TUI: Auto-syncing after filter response if needed");
                             self.auto_sync_if_needed().await?;
                         }
                     }
@@ -427,6 +433,7 @@ impl Tui {
                     Some(filter_edit) => match (key.code, key.modifiers) {
                         (KeyCode::Esc, _) => self.filter_edit = None,
                         (KeyCode::Enter, _) => {
+                            trace!("TUI: Filter edit confirmed - enabled: {}, filter: '{}'", filter_edit.enabled, filter_edit.input.value());
                             self.filter_enabled = filter_edit.enabled;
                             filter_spec_to_apply = Some(FilterSpec {
                                 filter: filter_edit.input.value().to_owned(),
@@ -445,9 +452,11 @@ impl Tui {
         }
 
         if let Some(filter_spec) = filter_spec_to_apply {
-            trace!("New filter spec: {:?}", filter_spec);
+            trace!("TUI: Applying new filter spec from user input: {:?}", filter_spec);
             self.set_filter_spec(filter_spec.clone()).await?;
             self.filter_spec = filter_spec;
+            self.filter_edit = None;
+            trace!("TUI: Filter edit dialog closed after applying filter");
         }
 
         Ok(false)
@@ -467,7 +476,10 @@ impl Tui {
 
     async fn auto_sync_if_needed(&mut self) -> Result<()> {
         if self.sync_filter_to_content {
+            trace!("TUI: Auto-sync enabled, syncing filter to content");
             self.sync_filter_to_content().await?;
+        } else {
+            trace!("TUI: Auto-sync disabled, skipping sync");
         }
 
         Ok(())
@@ -504,18 +516,22 @@ impl Tui {
     }
 
     async fn set_filter_spec(&mut self, filter_spec: FilterSpec) -> Result<()> {
-        trace!("Setting filter spec: {:?}", filter_spec);
+        trace!("TUI: Setting filter spec: {:?}, enabled: {}", filter_spec, self.filter_enabled);
         self.filter_spec = filter_spec;
 
+        let filter_to_send = if self.filter_enabled {
+            Some(self.filter_spec.clone())
+        } else {
+            None
+        };
+        
+        trace!("TUI: Sending SetFilter request to FFile channel: filter_spec={:?}", filter_to_send);
         self.ff_sender
             .send(FFReq::SetFilter {
-                filter_spec: if self.filter_enabled {
-                    Some(self.filter_spec.clone())
-                } else {
-                    None
-                },
+                filter_spec: filter_to_send,
             })
             .await?;
+        trace!("TUI: SetFilter request sent successfully");
 
         Ok(())
     }

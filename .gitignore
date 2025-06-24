@@ -1,3 +1,4 @@
 /target
 otail.log
 otail-panic.log
+*.test-log

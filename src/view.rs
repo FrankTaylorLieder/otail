@@ -169,6 +169,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
     }
 
     pub async fn init(&self) -> Result<()> {
+        trace!("Sending RegisterClient request for id: {}", self.id);
         self.file_req_sender
             .send(FileReq::RegisterClient {
                 id: self.id.clone(),
@@ -256,6 +257,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         self.tailing = tail;
 
         if !tail {
+            trace!("Sending DisableTailing request for id: {}", self.id);
             self.file_req_sender
                 .send(FileReq::DisableTailing {
                     id: self.id.clone(),
@@ -268,6 +270,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         let last_line = common::clamped_sub(self.get_stats().file_lines, 1);
         self.set_current(last_line).await?;
 
+        trace!("Sending EnableTailing request for id: {}, last_seen_line: {}", self.id, last_line);
         self.file_req_sender
             .send(FileReq::EnableTailing {
                 id: self.id.clone(),

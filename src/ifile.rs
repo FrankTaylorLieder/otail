@@ -149,6 +149,7 @@ impl<BF: BackingFile> IFile<BF> {
                 cmd = self.view_receiver.recv() => {
                     match cmd {
                         Some(cmd) => {
+                            trace!("Received client command: {:?}", cmd);
                             self.handle_client_command(cmd).await?;
                         },
                         None => {
@@ -160,6 +161,7 @@ impl<BF: BackingFile> IFile<BF> {
                 update = reader_receiver.recv() => {
                     match update {
                         Some(update) => {
+                            trace!("Received reader update: {:?}", update);
                             self.handle_reader_update(update).await?;
                         },
                         None => {
@@ -229,11 +231,13 @@ impl<BF: BackingFile> IFile<BF> {
 
                 for (id, client) in self.clients.clients.iter_mut() {
                     trace!(
-                        "Sending stats to client: {} - line {}",
+                        "Sending stats to client: {} - line {}, file_lines: {}, file_bytes: {}",
                         id,
                         file_line_updated,
+                        self.file_lines,
+                        file_bytes
                     );
-                    client
+                    let send_result = client
                         .channel
                         .send(IFResp::ViewUpdate {
                             update: FileResp::Stats {
@@ -241,10 +245,23 @@ impl<BF: BackingFile> IFile<BF> {
                                 file_bytes,
                             },
                         })
-                        .await?;
-                    if client.interested.remove(&file_line_updated) || client.tailing {
-                        trace!("Sending line to client: {}", id);
-                        client
+                        .await;
+                    if let Err(e) = &send_result {
+                        trace!("Failed to send stats to client {}: {:?}", id, e);
+                    }
+                    send_result?;
+                    let was_interested = client.interested.remove(&file_line_updated);
+                    if was_interested || client.tailing {
+                        let reason = if was_interested {
+                            "interested"
+                        } else {
+                            "tailing"
+                        };
+                        trace!(
+                            "Sending line to client {} ({}): line_no={}, partial={}, content_len={}",
+                            id, reason, file_line_updated, partial, line_content.len()
+                        );
+                        let send_result = client
                             .channel
                             .send(IFResp::ViewUpdate {
                                 update: FileResp::Line {
@@ -253,7 +270,11 @@ impl<BF: BackingFile> IFile<BF> {
                                     partial,
                                 },
                             })
-                            .await?;
+                            .await;
+                        if let Err(e) = &send_result {
+                            trace!("Failed to send line to client {}: {:?}", id, e);
+                        }
+                        send_result?;
                     }
                 }
                 Ok(())
@@ -267,7 +288,11 @@ impl<BF: BackingFile> IFile<BF> {
                 for (id, client) in self.clients.clients.iter_mut() {
                     trace!("Sending truncate to client: {}", id);
                     client.interested = HashSet::new();
-                    client.channel.send(IFResp::Truncated).await?;
+                    let send_result = client.channel.send(IFResp::Truncated).await;
+                    if let Err(e) = &send_result {
+                        trace!("Failed to send truncate to client {}: {:?}", id, e);
+                    }
+                    send_result?;
                 }
                 Ok(())
             }
@@ -275,14 +300,18 @@ impl<BF: BackingFile> IFile<BF> {
                 error!("File error: {:?}", reason);
 
                 for (id, updater) in self.clients.clients.iter_mut() {
-                    trace!("Forwarding error to client: {}", id);
+                    trace!("Forwarding error to client {}: {}", id, reason);
                     updater.interested = HashSet::new();
-                    updater
+                    let send_result = updater
                         .channel
                         .send(IFResp::FileError {
                             reason: reason.clone(),
                         })
-                        .await?;
+                        .await;
+                    if let Err(e) = &send_result {
+                        trace!("Failed to send error to client {}: {:?}", id, e);
+                    }
+                    send_result?;
                 }
                 Ok(())
             }
@@ -311,8 +340,11 @@ impl<BF: BackingFile> IFile<BF> {
                         let backing_file = &mut self.backing_file;
                         let line_content = backing_file.read_line(Some(sl.offset as u64))?.clone();
 
-                        trace!("Returning line: {}", line_no);
-                        client
+                        trace!(
+                            "Sending requested line to client {}: line_no={}, partial={}, content_len={}",
+                            id, line_no, sl.partial, line_content.len()
+                        );
+                        let send_result = client
                             .channel
                             .send(IFResp::ViewUpdate {
                                 update: FileResp::Line {
@@ -321,7 +353,11 @@ impl<BF: BackingFile> IFile<BF> {
                                     partial: sl.partial,
                                 },
                             })
-                            .await?;
+                            .await;
+                        if let Err(e) = &send_result {
+                            trace!("Failed to send requested line to client {}: {:?}", id, e);
+                        }
+                        send_result?;
                         Ok(())
                     }
                 }
@@ -343,21 +379,31 @@ impl<BF: BackingFile> IFile<BF> {
                 self.clients.clients.insert(
                     id.clone(),
                     Client {
-                        _id: id,
+                        _id: id.clone(),
                         channel: client_sender.clone(),
                         tailing: false,
                         interested: HashSet::new(),
                     },
                 );
 
-                client_sender
+                trace!(
+                    "Sending initial stats to new client {}: file_lines={}, file_bytes={}",
+                    id,
+                    self.file_lines,
+                    self.file_bytes
+                );
+                let send_result = client_sender
                     .send(IFResp::ViewUpdate {
                         update: FileResp::Stats {
                             file_lines: self.file_lines,
                             file_bytes: self.file_bytes,
                         },
                     })
-                    .await?;
+                    .await;
+                if let Err(e) = &send_result {
+                    trace!("Failed to send initial stats to client {}: {:?}", id, e);
+                }
+                send_result?;
                 Ok(())
             }
             FileReq::EnableTailing { id, last_seen_line } => {
@@ -371,6 +417,14 @@ impl<BF: BackingFile> IFile<BF> {
                 client.tailing = true;
 
                 // Determine which lines the client will not know about.
+                let missing_lines_count = self.file_lines.saturating_sub(last_seen_line);
+                trace!(
+                    "Sending {} missing lines to client {} (last_seen_line={}, file_lines={})",
+                    missing_lines_count,
+                    id,
+                    last_seen_line,
+                    self.file_lines
+                );
                 for i in last_seen_line..self.file_lines {
                     let sl = self.lines.get(i);
                     let Some(l) = sl else {
@@ -381,8 +435,14 @@ impl<BF: BackingFile> IFile<BF> {
                     let backing_file = &mut self.backing_file;
                     let line_content = backing_file.read_line(Some(l.offset as u64))?.clone();
 
-                    trace!("Forwaring missing line: {}", i);
-                    client
+                    trace!(
+                        "Sending missing line to client {}: line_no={}, partial={}, content_len={}",
+                        id,
+                        i,
+                        l.partial,
+                        line_content.len()
+                    );
+                    let send_result = client
                         .channel
                         .send(IFResp::ViewUpdate {
                             update: FileResp::Line {
@@ -391,7 +451,11 @@ impl<BF: BackingFile> IFile<BF> {
                                 partial: l.partial,
                             },
                         })
-                        .await?;
+                        .await;
+                    if let Err(e) = &send_result {
+                        trace!("Failed to send missing line to client {}: {:?}", id, e);
+                    }
+                    send_result?;
                 }
                 Ok(())
             }
@@ -416,41 +480,50 @@ mod tests {
 
     use super::*;
     use crate::backing_file::MockBackingFile;
+    use flexi_logger::{detailed_format, FileSpec};
+
+    fn init_test_logging() {
+        let _ = flexi_logger::Logger::try_with_env()
+            .unwrap()
+            .log_to_file(FileSpec::default().suffix("test-log").use_timestamp(false))
+            .append()
+            .format(detailed_format)
+            .start();
+    }
 
     #[tokio::test]
     async fn test_ifile() {
+        init_test_logging();
         let backing_file = MockBackingFile::new();
         let mut ifile = IFile::new("test", backing_file);
-
-        let ifile_sender = ifile.get_view_sender();
 
         let client_id = "test_client".to_owned();
         let (client_sender, mut client_receiver) = mpsc::channel(CHANNEL_BUFFER);
 
-        let register_client = ifile_sender
-            .send(FileReq::RegisterClient {
+        let register_result = ifile
+            .handle_client_command(FileReq::RegisterClient {
                 id: client_id.clone(),
                 client_sender,
             })
             .await;
 
         assert!(
-            register_client.is_ok(),
-            "Failed register client of file: {:?}",
-            register_client
+            register_result.is_ok(),
+            "Failed to register client of file: {:?}",
+            register_result
         );
 
-        let register_response = ifile_sender
-            .send(FileReq::EnableTailing {
+        let tailing_result = ifile
+            .handle_client_command(FileReq::EnableTailing {
                 id: client_id.clone(),
                 last_seen_line: 0,
             })
             .await;
 
         assert!(
-            register_response.is_ok(),
+            tailing_result.is_ok(),
             "Failed to register tail for client: {:?}",
-            register_response
+            tailing_result
         );
 
         let mut file_bytes = 0_u64;
@@ -473,6 +546,18 @@ mod tests {
         let m1 = client_receiver.try_recv();
         assert!(m1.is_ok(), "Failed to receive client message: {:?}", m1);
 
+        // XXX Check this is a Stats message showing 0 data.
+
+        let m2 = client_receiver.try_recv();
+        assert!(m2.is_ok(), "Failed to receive client message: {:?}", m2);
+
+        // XXX Check this is a stats message wtih the supplied data.
+
+        let m3 = client_receiver.try_recv();
+        assert!(m3.is_ok(), "Failed to receive client message: {:?}", m3);
+
+        trace!("XXX Received m1: {:?}", m3);
+
         if let IFResp::ViewUpdate {
             update:
                 FileResp::Line {
@@ -480,7 +565,7 @@ mod tests {
                     line_content,
                     partial,
                 },
-        } = m1.unwrap()
+        } = m3.unwrap()
         {
             assert_eq!(line_no, 0, "Wrong line numner: {:?}", line_no);
             assert_eq!(
@@ -493,8 +578,6 @@ mod tests {
         } else {
             panic!("Incorrect response");
         }
-
-        XXX Not working... need to debug test
 
         // XXX Check the mock calls - probably none in this case
     }
