@@ -646,6 +646,11 @@ mod tests {
         }
     }
 
+    // Additional tests:
+    // - Partial lines
+    // - Truncation
+    // - Tailing
+
     // Check that the next message on this receiver is a Stats message with the relevant values.
     // Supply `None` if the specific attribute should not be checked.
     fn check_viewupdate_fileresp_stats(
