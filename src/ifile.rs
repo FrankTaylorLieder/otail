@@ -493,9 +493,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ifile() {
+    async fn test_ifile_single_line() {
         init_test_logging();
-        let backing_file = MockBackingFile::new();
+
+        let line0 = "FirstFullLine".to_owned();
+        let line0_len = line0.len();
+
+        let mut backing_file = MockBackingFile::new();
+        backing_file
+            .expect_read_line()
+            .with(mockall::predicate::eq(Some(0u64)))
+            .times(1)
+            .returning({
+                let line0 = line0.clone();
+                move |_| Ok(line0.clone())
+            });
+
         let mut ifile = IFile::new("test", backing_file);
 
         let client_id = "test_client".to_owned();
@@ -530,8 +543,6 @@ mod tests {
         let mut file_bytes = 0_u64;
         let mut file_lines = 0_usize;
 
-        let line0 = "FirstFullLine".to_owned();
-        let line0_len = line0.len();
         file_lines += 1;
         file_bytes += line0_len as u64;
         let r = ifile
@@ -568,7 +579,29 @@ mod tests {
             "First line update",
         );
 
-        // XXX Check the mock calls - probably none in this case
+        // Test GetLine request to trigger mock call
+        let getline_result = ifile
+            .handle_client_command(FileReq::GetLine {
+                id: client_id.clone(),
+                line_no: 0,
+            })
+            .await;
+
+        assert!(
+            getline_result.is_ok(),
+            "Failed to get line from client: {:?}",
+            getline_result
+        );
+
+        check_viewupdate_fileresp_line(
+            &mut client_receiver,
+            Some(0),
+            Some(&line0),
+            Some(false),
+            "GetLine response from mock",
+        );
+
+        // The mock expectations will be verified automatically when the mock is dropped
     }
 
     fn check_viewupdate_fileresp_line(
