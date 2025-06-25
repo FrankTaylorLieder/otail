@@ -481,6 +481,7 @@ mod tests {
     use super::*;
     use crate::backing_file::MockBackingFile;
     use flexi_logger::{detailed_format, FileSpec};
+    use tokio::sync::mpsc::Receiver;
 
     fn init_test_logging() {
         let _ = flexi_logger::Logger::try_with_env()
@@ -527,9 +528,11 @@ mod tests {
         );
 
         let mut file_bytes = 0_u64;
+        let mut file_lines = 0_usize;
 
         let line0 = "FirstFullLine".to_owned();
         let line0_len = line0.len();
+        file_lines += 1;
         file_bytes += line0_len as u64;
         let r = ifile
             .handle_reader_update(ReaderUpdate::Line {
@@ -543,20 +546,49 @@ mod tests {
 
         assert!(r.is_ok(), "Expected Ok for line0, got {:?}", r);
 
-        let m1 = client_receiver.try_recv();
-        assert!(m1.is_ok(), "Failed to receive client message: {:?}", m1);
+        check_viewupdate_fileresp_stats(
+            &mut client_receiver,
+            Some(0),
+            Some(0),
+            "Initial stats response",
+        );
 
-        // XXX Check this is a Stats message showing 0 data.
+        check_viewupdate_fileresp_stats(
+            &mut client_receiver,
+            Some(file_lines),
+            Some(file_bytes),
+            "First stats update when new content arrives",
+        );
 
-        let m2 = client_receiver.try_recv();
-        assert!(m2.is_ok(), "Failed to receive client message: {:?}", m2);
+        check_viewupdate_fileresp_line(
+            &mut client_receiver,
+            Some(0),
+            Some(&line0),
+            Some(false),
+            "First line update",
+        );
 
-        // XXX Check this is a stats message wtih the supplied data.
+        // XXX Check the mock calls - probably none in this case
+    }
 
-        let m3 = client_receiver.try_recv();
-        assert!(m3.is_ok(), "Failed to receive client message: {:?}", m3);
+    fn check_viewupdate_fileresp_line(
+        client_receiver: &mut Receiver<IFResp<String>>,
+        expected_line_no: Option<usize>,
+        expected_content: Option<&str>,
+        expected_partial: Option<bool>,
+        context: &str,
+    ) {
+        let message = client_receiver.try_recv();
+        assert!(
+            message.is_ok(),
+            "{}: Failed to receive client message: {:?}",
+            context,
+            message
+        );
 
-        trace!("XXX Received m1: {:?}", m3);
+        let Ok(message) = message else {
+            panic!("{}: Error whilst fetching message: {:?}", context, message);
+        };
 
         if let IFResp::ViewUpdate {
             update:
@@ -565,20 +597,62 @@ mod tests {
                     line_content,
                     partial,
                 },
-        } = m3.unwrap()
+        } = message
         {
-            assert_eq!(line_no, 0, "Wrong line numner: {:?}", line_no);
-            assert_eq!(
-                line_content,
-                line0.clone(),
-                "Wrong line content: {:?}",
-                line_content
-            );
-            assert_eq!(partial, false, "Incorrect partial: {:?}", partial);
+            if let Some(expected_line_no) = expected_line_no {
+                assert_eq!(line_no, expected_line_no, "Wrong line number");
+            }
+            if let Some(expected_content) = expected_content {
+                assert_eq!(line_content, expected_content, "Wrong content");
+            }
+            if let Some(expected_partial) = expected_partial {
+                assert_eq!(partial, expected_partial, "Wrong partial");
+            }
         } else {
             panic!("Incorrect response");
         }
+    }
 
-        // XXX Check the mock calls - probably none in this case
+    // Check that the next message on this receiver is a Stats message with the relevant values.
+    // Supply `None` if the specific attribute should not be checked.
+    fn check_viewupdate_fileresp_stats(
+        client_receiver: &mut Receiver<IFResp<String>>,
+        expected_lines: Option<usize>,
+        expected_bytes: Option<u64>,
+        context: &str,
+    ) {
+        let message = client_receiver.try_recv();
+        assert!(
+            message.is_ok(),
+            "{}: Failed to receive client message: {:?}",
+            context,
+            message
+        );
+
+        let Ok(message) = message else {
+            panic!("{}: Error whilst fetching message: {:?}", context, message);
+        };
+
+        if let IFResp::ViewUpdate {
+            update:
+                FileResp::Stats {
+                    file_lines,
+                    file_bytes,
+                },
+        } = message
+        {
+            if let Some(expected_lines) = expected_lines {
+                assert_eq!(file_lines, expected_lines, "{}: Wrong lines", context);
+            }
+            if let Some(expected_bytes) = expected_bytes {
+                assert_eq!(
+                    file_bytes, expected_bytes,
+                    "{}: Wrong bytes",
+                    expected_bytes
+                );
+            }
+        } else {
+            panic!("{}: Unexpected message type: {:?}", context, message);
+        }
     }
 }
