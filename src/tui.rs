@@ -50,6 +50,12 @@ const MARGIN_EXTRAS: usize = 1; // Allow space between line number ond content
 const SCROLLBAR_EXTRAS: usize = 1; // Allow space for scrollbar
 const TOTAL_EXTRAS: usize = MARGIN_EXTRAS + SCROLLBAR_EXTRAS;
 
+const RADIO_SELECTED: &str = "●";
+const RADIO_UNSELECTED: &str = "○";
+
+const CHECK_SELECTED: &str = "☑";
+const CHECK_UNSELECTED: &str = "☐";
+
 #[derive(Debug)]
 struct LazyState<T, L> {
     pub view: View<T, L>,
@@ -433,7 +439,11 @@ impl Tui {
                     Some(filter_edit) => match (key.code, key.modifiers) {
                         (KeyCode::Esc, _) => self.filter_edit = None,
                         (KeyCode::Enter, _) => {
-                            trace!("TUI: Filter edit confirmed - enabled: {}, filter: '{}'", filter_edit.enabled, filter_edit.input.value());
+                            trace!(
+                                "TUI: Filter edit confirmed - enabled: {}, filter: '{}'",
+                                filter_edit.enabled,
+                                filter_edit.input.value()
+                            );
                             self.filter_enabled = filter_edit.enabled;
                             let input = filter_edit.input.value();
                             filter_spec_to_apply =
@@ -451,7 +461,10 @@ impl Tui {
         }
 
         if let Some(filter_spec) = filter_spec_to_apply {
-            trace!("TUI: Applying new filter spec from user input: {:?}", filter_spec);
+            trace!(
+                "TUI: Applying new filter spec from user input: {:?}",
+                filter_spec
+            );
             self.set_filter_spec(filter_spec.clone()).await?;
             self.filter_spec = filter_spec;
             self.filter_edit = None;
@@ -515,7 +528,11 @@ impl Tui {
     }
 
     async fn set_filter_spec(&mut self, filter_spec: FilterSpec) -> Result<()> {
-        trace!("TUI: Setting filter spec: {:?}, enabled: {}", filter_spec, self.filter_enabled);
+        trace!(
+            "TUI: Setting filter spec: {:?}, enabled: {}",
+            filter_spec,
+            self.filter_enabled
+        );
         self.filter_spec = filter_spec;
 
         let filter_to_send = if self.filter_enabled {
@@ -523,8 +540,11 @@ impl Tui {
         } else {
             None
         };
-        
-        trace!("TUI: Sending SetFilter request to FFile channel: filter_spec={:?}", filter_to_send);
+
+        trace!(
+            "TUI: Sending SetFilter request to FFile channel: filter_spec={:?}",
+            filter_to_send
+        );
         self.ff_sender
             .send(FFReq::SetFilter {
                 filter_spec: filter_to_send,
@@ -678,7 +698,27 @@ impl Tui {
     }
 
     fn draw_checkbox(label: &str, current: bool) -> Span<'_> {
-        Span::from(format!("{} {}", if current { "☑" } else { "☐" }, label))
+        Span::from(format!(
+            "{} {}",
+            if current {
+                CHECK_SELECTED
+            } else {
+                CHECK_UNSELECTED
+            },
+            label
+        ))
+    }
+
+    fn draw_radiobutton(label: &str, current: bool) -> Span<'_> {
+        Span::from(format!(
+            "{} {}",
+            if current {
+                RADIO_SELECTED
+            } else {
+                RADIO_UNSELECTED
+            },
+            label
+        ))
     }
 
     fn draw(&mut self, frame: &mut Frame) {
@@ -779,18 +819,42 @@ impl Tui {
                 Constraint::Fill(10),
                 Constraint::Length(1),
             ]);
-            let [instructions_area, enabled_area, spec_area, mode_area] =
+            let [instructions_area, enabled_area, spec_area, filter_type_area] =
                 vertical.areas(inner_area);
 
             let instructions =
-                Paragraph::new("Set the filter... (Enter to apply, Esc to close)").centered();
+                Paragraph::new("(Enter to apply, Esc to close, C-x to toggle)").centered();
             frame.render_widget(instructions, instructions_area);
 
-            let enabled = Span::from(format!(
-                "   {} [T]oggle enabled",
-                if filter_edit.enabled { "☑" } else { "☐" }
-            ));
+            // let enabled = Span::from(format!(
+            //     "   {} [T]oggle enabled",
+            //     if filter_edit.enabled {
+            //         CHECK_SELECTED
+            //     } else {
+            //         CHECK_UNSELECTED
+            //     }
+            // ));
+            let enabled = Line::from(vec![
+                Span::raw("   "),
+                Tui::draw_checkbox("[T]oggle enabled", filter_edit.enabled),
+            ]);
             frame.render_widget(enabled, enabled_area);
+
+            let filter_type = Line::from(vec![
+                Span::raw("   "),
+                Tui::draw_radiobutton(
+                    "[I]nsensitive",
+                    filter_edit.filter_type == FilterType::SimpleCaseInsensitive,
+                ),
+                Span::raw("  "),
+                Tui::draw_radiobutton(
+                    "[C]ase sensitive",
+                    filter_edit.filter_type == FilterType::SimpleCaseSensitive,
+                ),
+                Span::raw("  "),
+                Tui::draw_radiobutton("[R]egex", filter_edit.filter_type == FilterType::Regex),
+            ]);
+            frame.render_widget(filter_type, filter_type_area);
 
             let input_widget = Paragraph::new(filter_edit.input.value())
                 .block(Block::default().borders(Borders::ALL).title("Expression"));
