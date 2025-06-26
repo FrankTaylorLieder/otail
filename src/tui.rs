@@ -452,6 +452,17 @@ impl Tui {
                         (KeyCode::Char('t'), KeyModifiers::CONTROL) => {
                             filter_edit.enabled = !filter_edit.enabled;
                         }
+                        (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
+                            // Note: C-i is sent as a TAB keycode, so we cannot use it for this
+                            // option.
+                            filter_edit.filter_type = FilterType::SimpleCaseInsensitive;
+                        }
+                        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                            filter_edit.filter_type = FilterType::SimpleCaseSensitive;
+                        }
+                        (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                            filter_edit.filter_type = FilterType::Regex;
+                        }
                         _ => {
                             filter_edit.input.handle_event(&Event::Key(*key));
                         }
@@ -826,14 +837,6 @@ impl Tui {
                 Paragraph::new("(Enter to apply, Esc to close, C-x to toggle)").centered();
             frame.render_widget(instructions, instructions_area);
 
-            // let enabled = Span::from(format!(
-            //     "   {} [T]oggle enabled",
-            //     if filter_edit.enabled {
-            //         CHECK_SELECTED
-            //     } else {
-            //         CHECK_UNSELECTED
-            //     }
-            // ));
             let enabled = Line::from(vec![
                 Span::raw("   "),
                 Tui::draw_checkbox("[T]oggle enabled", filter_edit.enabled),
@@ -843,7 +846,7 @@ impl Tui {
             let filter_type = Line::from(vec![
                 Span::raw("   "),
                 Tui::draw_radiobutton(
-                    "[I]nsensitive",
+                    "In[S]ensitive",
                     filter_edit.filter_type == FilterType::SimpleCaseInsensitive,
                 ),
                 Span::raw("  "),
