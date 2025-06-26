@@ -314,5 +314,5 @@ Add unit tests. Staring ifile (to confirm tricky partial line handling).
   - Use `mockall` to mock these traits
 - Vibe coded adding trace logging to all channel message sends and receives to
   make debugging easier.
-
-- TODO Compare/combine with claude unit tests in other branch
+- Move unit tests to main.
+- Added TODOs in code for more unit tests.
