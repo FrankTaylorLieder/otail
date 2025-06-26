@@ -49,9 +49,9 @@ impl FilterSpec {
 
     pub fn matches(&self, line: &str) -> bool {
         match self.filter_type {
-            FilterType::SimpleCaseSensitive => self.filter_pattern == line,
+            FilterType::SimpleCaseSensitive => line.contains(&self.filter_pattern),
             FilterType::SimpleCaseInsensitive => {
-                CaseInsensitiveString::new(&self.filter_pattern) == CaseInsensitiveString::new(line)
+                CaseInsensitiveString::new(line).contains(&self.filter_pattern)
             }
             FilterType::Regex => {
                 if let Some(ref regex) = self.regex {

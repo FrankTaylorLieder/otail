@@ -322,7 +322,7 @@ Add unit tests. Staring ifile (to confirm tricky partial line handling).
 - Move unit tests to main.
 - Added TODOs in code for more unit tests.
 
-Commit: ee7fde1
+Commit: ecc97ae
 
 - Feature: colouring
   - Refactor FilterSpec
