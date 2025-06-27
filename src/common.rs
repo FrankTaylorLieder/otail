@@ -1,5 +1,4 @@
 use anyhow::Result;
-use case_insensitive_string::CaseInsensitiveString;
 use regex::Regex;
 
 pub const CHANNEL_BUFFER: usize = 1000;
@@ -51,7 +50,7 @@ impl FilterSpec {
         match self.filter_type {
             FilterType::SimpleCaseSensitive => line.contains(&self.filter_pattern),
             FilterType::SimpleCaseInsensitive => {
-                CaseInsensitiveString::new(line).contains(&self.filter_pattern)
+                line.to_lowercase().contains(&self.filter_pattern.to_lowercase())
             }
             FilterType::Regex => {
                 if let Some(ref regex) = self.regex {

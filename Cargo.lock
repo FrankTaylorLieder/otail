@@ -155,12 +155,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "325918d6fe32f23b19878fe4b34794ae41fc19ddbe53b10571a4874d44ffd39b"
 
 [[package]]
-name = "case_insensitive_string"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1179f30a7e3398749c5c3a1bb5746322458c3a67328acb756e5a8ae3758b9291"
-
-[[package]]
 name = "cassowary"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -866,7 +860,6 @@ name = "otail"
 version = "0.0.1"
 dependencies = [
  "anyhow",
- "case_insensitive_string",
  "clap",
  "crossterm",
  "env_logger",

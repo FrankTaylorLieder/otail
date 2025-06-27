@@ -329,7 +329,10 @@ Commit: ecc97ae
     - DONE Implement different filter methods
     - DONE Add filter types to FilterEdit window
       - Radio buttons: ● Selected option ○ Unselected option
-    - BUG: Insensitive search is not insensitive
+    - FIXED: Insensitive search is not insensitive
+      - Enabled Claude for this project...
+        - Save all interactions in to DEVELOPMENT.md
+      - Fixed this bug.
   - Define colouring definition in terms of FilterSpec
     - Define some colours
     - Start with a set of ColourSpecs hardwired
