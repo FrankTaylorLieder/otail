@@ -1,6 +1,8 @@
 pub mod backing_file;
+pub mod colour_spec;
 pub mod common;
 pub mod ffile;
+pub mod filter_spec;
 pub mod ifile;
 pub mod panic;
 pub mod reader;

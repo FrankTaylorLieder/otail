@@ -1,5 +1,8 @@
 #![allow(unused_imports, unused_variables)]
-use crate::common::{FilterSpec, FilterType};
+use crate::{
+    colour_spec::{Colour, ColouringRule, ColouringSpec, Colours},
+    filter_spec::{FilterSpec, FilterType},
+};
 use anyhow::{bail, Result};
 use clap::builder::Styles;
 use crossterm::event::{EventStream, KeyModifiers};
@@ -29,7 +32,7 @@ use ratatui::{
         ExecutableCommand,
     },
     layout::{Alignment, Constraint, Flex, Layout, Margin, Position, Rect},
-    style::{Modifier, Style, Styled, Stylize},
+    style::{Color, Modifier, Style, Styled, Stylize},
     symbols,
     text::{Line, Span, Text},
     widgets::{
@@ -64,6 +67,8 @@ struct LazyState<T, L> {
     pub width_hint: usize,
 
     pub content_num_lines: usize,
+
+    pub colouring: ColouringSpec,
 
     cell_renders: u32,
 }
@@ -127,11 +132,21 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
                 None => "...".to_owned(),
             };
 
-            let style = if i == current {
+            let mut style = if i == current {
                 Style::default().add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
+
+            // TODO: We are looking at the rendered line content... does this matter for colouring?
+            if let Some((fg, bg)) = state.colouring.maybe_colour(&l) {
+                if let Some(fg) = fg {
+                    style = style.fg(colour_to_color(fg));
+                }
+                if let Some(bg) = bg {
+                    style = style.bg(colour_to_color(bg));
+                }
+            }
 
             let content = format!(
                 "{i:>margin_width$}{c}{l:.content_width$}",
@@ -148,6 +163,20 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
             state.cell_renders += 1;
         }
         Text::from(lines).render(inner, buf);
+    }
+}
+
+fn colour_to_color(colour: Colour) -> Color {
+    match colour {
+        Colour::Black => Color::Black,
+        Colour::Red => Color::Red,
+        Colour::Green => Color::Green,
+        Colour::Blue => Color::Blue,
+        Colour::Yellow => Color::Yellow,
+        Colour::Magenta => Color::Magenta,
+        Colour::Cyan => Color::Cyan,
+        Colour::Gray => Color::Gray,
+        Colour::White => Color::White,
     }
 }
 
@@ -190,6 +219,9 @@ pub struct Tui {
 
     // Make content follow filter selection.
     sync_filter_to_content: bool,
+
+    // Current colouring to apply to all output
+    colouring: ColouringSpec,
 }
 
 impl Tui {
@@ -213,6 +245,14 @@ impl Tui {
             filter_ifresp_sender,
         );
 
+        let colouring = ColouringSpec::new().set_rules(vec![ColouringRule {
+            enabled: true,
+            filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "hello")
+                .expect("Failed to build sample filter spec"),
+            fg_colour: Some(Colour::Red),
+            bg_colour: None,
+        }]);
+
         let s = Self {
             path,
 
@@ -226,6 +266,7 @@ impl Tui {
                 height_hint: 0,
                 width_hint: 0,
                 content_num_lines: 0,
+                colouring: colouring.clone(),
                 cell_renders: 0,
             },
             content_scroll_state: ScrollbarState::new(0),
@@ -237,12 +278,15 @@ impl Tui {
                 height_hint: 0,
                 width_hint: 0,
                 content_num_lines: 0,
+                colouring: colouring.clone(),
                 cell_renders: 0,
             },
             filter_tail: false,
             filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "")
                 .expect("Unexpected error building empty filter"),
             filter_enabled: false,
+
+            colouring,
 
             current_window: true,
             content_fill: 7,

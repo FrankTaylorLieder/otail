@@ -1,15 +1,13 @@
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use tokio::sync::oneshot;
-
 use anyhow::{anyhow, Result};
 use log::{debug, trace, warn};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use tokio::select;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
-use crate::common::{
-    replace_for_view, FilterSpec, LineContent, CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE,
-};
+use crate::common::{replace_for_view, LineContent, CHANNEL_BUFFER, FILTER_SPOOLING_BATCH_SIZE};
+use crate::filter_spec::FilterSpec;
 use crate::ifile::{
     FileReq, FileReqReceiver, FileReqSender, FileResp, FileRespReceiver, FileRespSender, IFResp,
 };

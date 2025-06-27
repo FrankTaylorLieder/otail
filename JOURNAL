@@ -325,7 +325,7 @@ Add unit tests. Staring ifile (to confirm tricky partial line handling).
 Commit: ecc97ae
 
 - Feature: colouring
-  - Refactor FilterSpec
+  - DONE Refactor FilterSpec
     - DONE Implement different filter methods
     - DONE Add filter types to FilterEdit window
       - Radio buttons: ● Selected option ○ Unselected option
@@ -333,11 +333,12 @@ Commit: ecc97ae
       - Enabled Claude for this project...
         - Save all interactions in to DEVELOPMENT.md
       - Fixed this bug.
-  - Define colouring definition in terms of FilterSpec
-    - Define some colours
-    - Start with a set of ColourSpecs hardwired
-  - Colour output based on current ColourSpecs
+  - DONE Define colouring definition in terms of FilterSpec
+    - DONE Define some colours
+    - DONE Start with a set of ColourSpecs hardwired
+  - DONE Colour output based on current ColourSpecs
   - Build ColourSpec UI
+    - Hold a ColourSpec in the main tui state, then push copies into each View as and when the main CS changes.
 
 (Pausing colouring, continuning on branch: 20250410-colouring)
 
