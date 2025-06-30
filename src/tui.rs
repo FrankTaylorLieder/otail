@@ -245,13 +245,22 @@ impl Tui {
             filter_ifresp_sender,
         );
 
-        let colouring = ColouringSpec::new().set_rules(vec![ColouringRule {
-            enabled: true,
-            filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "hello")
-                .expect("Failed to build sample filter spec"),
-            fg_colour: Some(Colour::Red),
-            bg_colour: None,
-        }]);
+        let colouring = ColouringSpec::new().set_rules(vec![
+            ColouringRule {
+                enabled: true,
+                filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "hello")
+                    .expect("Failed to build sample filter spec"),
+                fg_colour: Some(Colour::Red),
+                bg_colour: None,
+            },
+            ColouringRule {
+                enabled: true,
+                filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "123")
+                    .expect("Failed to unwrap 123"),
+                fg_colour: None,
+                bg_colour: Some(Colour::White),
+            },
+        ]);
 
         let s = Self {
             path,
