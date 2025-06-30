@@ -337,7 +337,7 @@ Commit: ecc97ae
     - DONE Define some colours
     - DONE Start with a set of ColourSpecs hardwired
   - DONE Colour output based on current ColourSpecs
-  - BUG: Only colour the text, not the margin content.
+  - FIXED: Only colour the text, not the margin content.
   - Build ColourSpec UI
     - Hold a ColourSpec in the main tui state, then push copies into each View as and when the main CS changes.
 

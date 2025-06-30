@@ -132,33 +132,43 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
                 None => "...".to_owned(),
             };
 
-            let mut style = if i == current {
+            let base_style = if i == current {
                 Style::default().add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
 
             // TODO: We are looking at the rendered line content... does this matter for colouring?
+            let mut content_style = base_style.clone();
             if let Some((fg, bg)) = state.colouring.maybe_colour(&l) {
                 if let Some(fg) = fg {
-                    style = style.fg(colour_to_color(fg));
+                    content_style = content_style.fg(colour_to_color(fg));
                 }
                 if let Some(bg) = bg {
-                    style = style.bg(colour_to_color(bg));
+                    content_style = content_style.bg(colour_to_color(bg));
                 }
             }
 
-            let content = format!(
-                "{i:>margin_width$}{c}{l:.content_width$}",
+            // Break the line into margin and content. Only colour the content.
+
+            let margin = format!(
+                "{i:>margin_width$}{c}",
                 i = i,
-                c = if i == current { ">" } else { " " },
+                c = if i == current { ">" } else { " " }
+            );
+
+            let content = format!(
+                "{l:.content_width$}",
                 content_width = content_width,
                 l = l.get(self.start_point..).unwrap_or(""),
             );
 
             // TODO: Render the line_no, not the match_no for FilterLine. Will need to encapsulate
             // String and have a render columns method or similar.
-            lines.push(Line::from(Span::styled(content, style)));
+            lines.push(Line::from(vec![
+                Span::styled(margin, base_style),
+                Span::styled(content, content_style),
+            ]));
 
             state.cell_renders += 1;
         }
@@ -257,8 +267,8 @@ impl Tui {
                 enabled: true,
                 filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "123")
                     .expect("Failed to unwrap 123"),
-                fg_colour: None,
-                bg_colour: Some(Colour::White),
+                fg_colour: Some(Colour::Black),
+                bg_colour: Some(Colour::Green),
             },
         ]);
 
