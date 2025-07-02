@@ -197,6 +197,11 @@ struct FilterEditState {
     filter_type: FilterType,
 }
 
+#[derive(Debug, Clone)]
+struct ColouringEditState {
+    spec: ColouringSpec,
+}
+
 pub struct Tui {
     path: String,
 
@@ -232,6 +237,9 @@ pub struct Tui {
 
     // Current colouring to apply to all output
     colouring: ColouringSpec,
+
+    // Are are we showing the colouring edit modal?
+    colouring_edit: Option<ColouringEditState>,
 }
 
 impl Tui {
@@ -305,14 +313,15 @@ impl Tui {
                 .expect("Unexpected error building empty filter"),
             filter_enabled: false,
 
-            colouring,
-
             current_window: true,
             content_fill: 7,
             line_no_width: 0,
 
             filter_edit: None,
             sync_filter_to_content: false,
+
+            colouring,
+            colouring_edit: None,
         };
 
         s
@@ -462,9 +471,9 @@ impl Tui {
         let mut filter_spec_to_apply = None;
         if let Event::Key(key) = event {
             if key.kind == event::KeyEventKind::Press {
-                match &mut self.filter_edit {
+                match (&mut self.filter_edit, &mut self.colouring_edit) {
                     // Showing the main window.
-                    None => match (key.code, key.modifiers) {
+                    (None, None) => match (key.code, key.modifiers) {
                         (KeyCode::Char('q'), _) => return Ok(true),
 
                         (KeyCode::Char('j') | KeyCode::Down, _) => self.scroll(1).await?,
@@ -491,15 +500,15 @@ impl Tui {
 
                         (KeyCode::Tab, _) => self.current_window = !self.current_window,
 
-                        (KeyCode::Char('/'), _) => self.start_edit_filter(),
-
                         (KeyCode::Char('s'), _) => self.sync_filter_to_content().await?,
                         (KeyCode::Char('S'), _) => self.toggle_sync_lock().await?,
 
+                        (KeyCode::Char('/'), _) => self.start_edit_filter(),
+                        (KeyCode::Char('C'), _) => self.start_edit_colouring(),
                         _ => {}
                     },
                     // Showing the filter edit dialog.
-                    Some(filter_edit) => match (key.code, key.modifiers) {
+                    (Some(filter_edit), None) => match (key.code, key.modifiers) {
                         (KeyCode::Esc, _) => self.filter_edit = None,
                         (KeyCode::Enter, _) => {
                             trace!(
@@ -528,6 +537,17 @@ impl Tui {
                         }
                         _ => {
                             filter_edit.input.handle_event(&Event::Key(*key));
+                        }
+                    },
+                    // Showing the colouring edit dialog.
+                    (_, Some(colouring_edit)) => match (key.code, key.modifiers) {
+                        (KeyCode::Esc, _) => self.colouring_edit = None,
+                        // XXX Fill in the rest of the colouring keys
+                        _ => {
+                            warn!(
+                                "Unhandled colouring edit key: {:?} / {:?}",
+                                key.code, key.modifiers
+                            );
                         }
                     },
                 }
@@ -771,6 +791,12 @@ impl Tui {
         });
     }
 
+    fn start_edit_colouring(&mut self) {
+        self.colouring_edit = Some(ColouringEditState {
+            spec: self.colouring.clone(),
+        })
+    }
+
     fn draw_checkbox(label: &str, current: bool) -> Span<'_> {
         Span::from(format!(
             "{} {}",
@@ -932,6 +958,62 @@ impl Tui {
                 spec_area.x + cursor_position + 1,
                 spec_area.y + 1,
             ));
+
+            frame.render_widget(surrounding_block, area);
+        }
+
+        // Render the colours dlg if needed.
+        if let Some(colouring_edit) = &self.colouring_edit {
+            let area = Tui::popup_area(area, 60, 60);
+            frame.render_widget(Clear, area);
+
+            let surrounding_block = Block::bordered().title("Colouring");
+            // let inner_area = surrounding_block.inner(area);
+
+            // let vertical = Layout::vertical([
+            //     Constraint::Length(1),
+            //     Constraint::Length(1),
+            //     Constraint::Fill(10),
+            //     Constraint::Length(1),
+            // ]);
+            // let [instructions_area, enabled_area, spec_area, filter_type_area] =
+            //     vertical.areas(inner_area);
+            //
+            // let instructions =
+            //     Paragraph::new("(Enter to apply, Esc to close, C-x to toggle)").centered();
+            // frame.render_widget(instructions, instructions_area);
+            //
+            // let enabled = Line::from(vec![
+            //     Span::raw("   "),
+            //     Tui::draw_checkbox("[T]oggle enabled", filter_edit.enabled),
+            // ]);
+            // frame.render_widget(enabled, enabled_area);
+            //
+            // let filter_type = Line::from(vec![
+            //     Span::raw("   "),
+            //     Tui::draw_radiobutton(
+            //         "In[S]ensitive",
+            //         filter_edit.filter_type == FilterType::SimpleCaseInsensitive,
+            //     ),
+            //     Span::raw("  "),
+            //     Tui::draw_radiobutton(
+            //         "[C]ase sensitive",
+            //         filter_edit.filter_type == FilterType::SimpleCaseSensitive,
+            //     ),
+            //     Span::raw("  "),
+            //     Tui::draw_radiobutton("[R]egex", filter_edit.filter_type == FilterType::Regex),
+            // ]);
+            // frame.render_widget(filter_type, filter_type_area);
+            //
+            // let input_widget = Paragraph::new(filter_edit.input.value())
+            //     .block(Block::default().borders(Borders::ALL).title("Expression"));
+            // frame.render_widget(input_widget, spec_area);
+            //
+            // let cursor_position = filter_edit.input.cursor() as u16;
+            // frame.set_cursor_position(Position::new(
+            //     spec_area.x + cursor_position + 1,
+            //     spec_area.y + 1,
+            // ));
 
             frame.render_widget(surrounding_block, area);
         }

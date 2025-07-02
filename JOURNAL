@@ -339,6 +339,12 @@ Commit: ecc97ae
   - DONE Colour output based on current ColourSpecs
   - FIXED: Only colour the text, not the margin content.
   - Build ColourSpec UI
+    - Added ColouringEditSpec
+    - DONE Adding keys to bring up colouring dlg.
+      - The colouring dlg takes precedence over the filter dlg for display stacking and key bindings.
+        - It should feel like the filter dlg is covered by the colouring dlg.
+        - 
+    - NEXT Render colouring dlg
     - Hold a ColourSpec in the main tui state, then push copies into each View as and when the main CS changes.
 
 (Pausing colouring, continuning on branch: 20250410-colouring)
