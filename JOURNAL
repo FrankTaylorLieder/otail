@@ -343,8 +343,10 @@ Commit: ecc97ae
     - DONE Adding keys to bring up colouring dlg.
       - The colouring dlg takes precedence over the filter dlg for display stacking and key bindings.
         - It should feel like the filter dlg is covered by the colouring dlg.
-        - 
     - NEXT Render colouring dlg
+      - Render the colouring rules in a scrolling list
+      - Show a full rule edit for the currently selected rule
+    - Implement the controls: selection up/down, move up/down, add, remove
     - Hold a ColourSpec in the main tui state, then push copies into each View as and when the main CS changes.
 
 (Pausing colouring, continuning on branch: 20250410-colouring)

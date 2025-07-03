@@ -908,115 +908,84 @@ impl Tui {
 
         // Render the filter spec dialog if needed.
         if let Some(filter_edit) = &self.filter_edit {
-            let area = Tui::popup_area(area, 60, 20);
-            frame.render_widget(Clear, area);
-
-            let surrounding_block = Block::bordered().title("Filter");
-            let inner_area = surrounding_block.inner(area);
-
-            let vertical = Layout::vertical([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Fill(10),
-                Constraint::Length(1),
-            ]);
-            let [instructions_area, enabled_area, spec_area, filter_type_area] =
-                vertical.areas(inner_area);
-
-            let instructions =
-                Paragraph::new("(Enter to apply, Esc to close, C-x to toggle)").centered();
-            frame.render_widget(instructions, instructions_area);
-
-            let enabled = Line::from(vec![
-                Span::raw("   "),
-                Tui::draw_checkbox("[T]oggle enabled", filter_edit.enabled),
-            ]);
-            frame.render_widget(enabled, enabled_area);
-
-            let filter_type = Line::from(vec![
-                Span::raw("   "),
-                Tui::draw_radiobutton(
-                    "In[S]ensitive",
-                    filter_edit.filter_type == FilterType::SimpleCaseInsensitive,
-                ),
-                Span::raw("  "),
-                Tui::draw_radiobutton(
-                    "[C]ase sensitive",
-                    filter_edit.filter_type == FilterType::SimpleCaseSensitive,
-                ),
-                Span::raw("  "),
-                Tui::draw_radiobutton("[R]egex", filter_edit.filter_type == FilterType::Regex),
-            ]);
-            frame.render_widget(filter_type, filter_type_area);
-
-            let input_widget = Paragraph::new(filter_edit.input.value())
-                .block(Block::default().borders(Borders::ALL).title("Expression"));
-            frame.render_widget(input_widget, spec_area);
-
-            let cursor_position = filter_edit.input.cursor() as u16;
-            frame.set_cursor_position(Position::new(
-                spec_area.x + cursor_position + 1,
-                spec_area.y + 1,
-            ));
-
-            frame.render_widget(surrounding_block, area);
+            Tui::draw_filter_dlg(filter_edit, area, frame);
         }
 
         // Render the colours dlg if needed.
         if let Some(colouring_edit) = &self.colouring_edit {
-            let area = Tui::popup_area(area, 60, 60);
-            frame.render_widget(Clear, area);
-
-            let surrounding_block = Block::bordered().title("Colouring");
-            // let inner_area = surrounding_block.inner(area);
-
-            // let vertical = Layout::vertical([
-            //     Constraint::Length(1),
-            //     Constraint::Length(1),
-            //     Constraint::Fill(10),
-            //     Constraint::Length(1),
-            // ]);
-            // let [instructions_area, enabled_area, spec_area, filter_type_area] =
-            //     vertical.areas(inner_area);
-            //
-            // let instructions =
-            //     Paragraph::new("(Enter to apply, Esc to close, C-x to toggle)").centered();
-            // frame.render_widget(instructions, instructions_area);
-            //
-            // let enabled = Line::from(vec![
-            //     Span::raw("   "),
-            //     Tui::draw_checkbox("[T]oggle enabled", filter_edit.enabled),
-            // ]);
-            // frame.render_widget(enabled, enabled_area);
-            //
-            // let filter_type = Line::from(vec![
-            //     Span::raw("   "),
-            //     Tui::draw_radiobutton(
-            //         "In[S]ensitive",
-            //         filter_edit.filter_type == FilterType::SimpleCaseInsensitive,
-            //     ),
-            //     Span::raw("  "),
-            //     Tui::draw_radiobutton(
-            //         "[C]ase sensitive",
-            //         filter_edit.filter_type == FilterType::SimpleCaseSensitive,
-            //     ),
-            //     Span::raw("  "),
-            //     Tui::draw_radiobutton("[R]egex", filter_edit.filter_type == FilterType::Regex),
-            // ]);
-            // frame.render_widget(filter_type, filter_type_area);
-            //
-            // let input_widget = Paragraph::new(filter_edit.input.value())
-            //     .block(Block::default().borders(Borders::ALL).title("Expression"));
-            // frame.render_widget(input_widget, spec_area);
-            //
-            // let cursor_position = filter_edit.input.cursor() as u16;
-            // frame.set_cursor_position(Position::new(
-            //     spec_area.x + cursor_position + 1,
-            //     spec_area.y + 1,
-            // ));
-
-            frame.render_widget(surrounding_block, area);
+            Tui::draw_colouring_dlg(colouring_edit, area, frame);
         }
+    }
+
+    fn draw_filter_dlg(filter_edit: &FilterEditState, area: Rect, frame: &mut Frame) {
+        let area = Tui::popup_area(area, 60, 20);
+        frame.render_widget(Clear, area);
+
+        let surrounding_block =
+            Block::bordered().title("Filter (Enter to apply, Esc to close, C-x to toggle)");
+        let inner_area = surrounding_block.inner(area);
+
+        Tui::draw_filter_edit(filter_edit, inner_area, frame);
+        frame.render_widget(surrounding_block, area);
+    }
+
+    fn draw_colouring_dlg(filter_edit: &ColouringEditState, area: Rect, frame: &mut Frame) {
+        let area = Tui::popup_area(area, 60, 60);
+        frame.render_widget(Clear, area);
+
+        let surrounding_block = Block::bordered().title("Colouring");
+        let inner_area = surrounding_block.inner(area);
+
+        let colouring_dlg_layout = Layout::vertical([Constraint::Fill(1), Constraint::Length(4)]);
+        let [summary_area, edit_area] = colouring_dlg_layout.areas(inner_area);
+
+        frame.render_widget(Line::from("    Rules"), summary_area);
+        frame.render_widget(Line::from("    Edit"), edit_area);
+
+        frame.render_widget(surrounding_block, area);
+    }
+
+    fn draw_colouring_rule(colouring_rule: &mut ColouringRule) {}
+
+    fn draw_filter_edit(filter_edit: &FilterEditState, inner_area: Rect, frame: &mut Frame) {
+        let vertical = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Fill(10),
+            Constraint::Length(1),
+        ]);
+        let [enabled_area, spec_area, filter_type_area] = vertical.areas(inner_area);
+
+        let enabled = Line::from(vec![
+            Span::raw("   "),
+            Tui::draw_checkbox("[T]oggle enabled", filter_edit.enabled),
+        ]);
+        frame.render_widget(enabled, enabled_area);
+
+        let filter_type = Line::from(vec![
+            Span::raw("   "),
+            Tui::draw_radiobutton(
+                "In[S]ensitive",
+                filter_edit.filter_type == FilterType::SimpleCaseInsensitive,
+            ),
+            Span::raw("  "),
+            Tui::draw_radiobutton(
+                "[C]ase sensitive",
+                filter_edit.filter_type == FilterType::SimpleCaseSensitive,
+            ),
+            Span::raw("  "),
+            Tui::draw_radiobutton("[R]egex", filter_edit.filter_type == FilterType::Regex),
+        ]);
+        frame.render_widget(filter_type, filter_type_area);
+
+        let input_widget = Paragraph::new(filter_edit.input.value())
+            .block(Block::default().borders(Borders::ALL).title("Expression"));
+        frame.render_widget(input_widget, spec_area);
+
+        let cursor_position = filter_edit.input.cursor() as u16;
+        frame.set_cursor_position(Position::new(
+            spec_area.x + cursor_position + 1,
+            spec_area.y + 1,
+        ));
     }
 
     fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
