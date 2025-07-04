@@ -15,6 +15,7 @@ pub struct LinesSlice {
 
 #[derive(Debug, Clone, Default)]
 pub struct Stats {
+    pub view_lines: usize,
     pub file_lines: usize,
     pub file_bytes: u64,
 }
@@ -191,7 +192,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
         })
         .await?;
 
-        self.stats.file_lines = 0;
+        self.stats.view_lines = 0;
         self.stats.file_bytes = 0;
         let missing = self.line_cache.reset();
 
@@ -267,10 +268,14 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
             return Ok(());
         }
 
-        let last_line = common::clamped_sub(self.get_stats().file_lines, 1);
+        let last_line = common::clamped_sub(self.get_stats().view_lines, 1);
         self.set_current(last_line).await?;
 
-        trace!("Sending EnableTailing request for id: {}, last_seen_line: {}", self.id, last_line);
+        trace!(
+            "Sending EnableTailing request for id: {}, last_seen_line: {}",
+            self.id,
+            last_line
+        );
         self.file_req_sender
             .send(FileReq::EnableTailing {
                 id: self.id.clone(),
@@ -438,7 +443,7 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
 
                 if self.tailing {
                     if let Err(err) = self
-                        .set_current(common::clamped_sub(self.stats.file_lines, 1))
+                        .set_current(common::clamped_sub(self.stats.view_lines, 1))
                         .await
                     {
                         warn!("Failed to set current to last line during tail: {:?}", err);
@@ -446,9 +451,11 @@ impl<T: std::marker::Send + 'static, L: Clone + Default + LineContent> View<T, L
                 }
             }
             FileResp::Stats {
+                view_lines,
                 file_lines,
                 file_bytes,
             } => {
+                self.stats.view_lines = view_lines;
                 self.stats.file_lines = file_lines;
                 self.stats.file_bytes = file_bytes;
             }

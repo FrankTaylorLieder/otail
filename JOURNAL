@@ -339,3 +339,15 @@ Commit: ecc97ae
   - Colour output based on current ColourSpecs
   - Build ColourSpec UI
 
+(Pausing colouring, continuning on branch: 20250410-colouring)
+
+Commit: a948e23
+
+- Report matching progress through file
+  - Plan:
+    - Return updates to the view with the ifile line we have reached.
+    - Return updates every 1000 lines even if there are no matches.
+    - View will determine, based on the current file length, the % to display in the status: "N matches / M% searched"
+    - Send stats for every spooled line so we can report progress.
+  - RESOLVED: It seems to get jammed at 82% when spooling a long file. 
+    - Was calculating the % wrong, need file_lines and content file_lines.

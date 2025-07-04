@@ -234,7 +234,10 @@ impl FFile {
         for (client_id, client) in self.clients.iter() {
             trace!("Sending Clear command to client: id={}", client_id);
             client.channel.send(FFResp::Clear).await?;
-            trace!("Clear command sent successfully to client: id={}", client_id);
+            trace!(
+                "Clear command sent successfully to client: id={}",
+                client_id
+            );
         }
 
         if self.filter_state.is_some() {
@@ -309,16 +312,23 @@ impl FFile {
                     },
                 );
 
-                trace!("Sending initial stats to new filter client: id={}, stats=0/0", id);
+                trace!(
+                    "Sending initial stats to new filter client: id={}, stats=0/0",
+                    id
+                );
                 client_sender
                     .send(FFResp::ViewUpdate {
                         update: FileResp::Stats {
+                            view_lines: 0,
                             file_lines: 0,
                             file_bytes: 0,
                         },
                     })
                     .await?;
-                trace!("Initial stats sent successfully to new filter client: id={}", id);
+                trace!(
+                    "Initial stats sent successfully to new filter client: id={}",
+                    id
+                );
 
                 trace!("Finished register");
                 Ok(())
@@ -411,7 +421,11 @@ impl FFile {
                     line_no: i,
                 })
                 .await?;
-            trace!("Batch GetLine request sent successfully: id={}, line_no={}", self.id, i);
+            trace!(
+                "Batch GetLine request sent successfully: id={}, line_no={}",
+                self.id,
+                i
+            );
 
             filter_state.next_line_to_request += 1;
         }
@@ -439,6 +453,7 @@ impl FFile {
         }
 
         filter_state.next_line_expected += 1;
+        let file_lines = line_no + 1;
 
         if filter_state.filter_spec.matches(&line_content) {
             trace!("Line matches...");
@@ -449,17 +464,27 @@ impl FFile {
             filter_state.num_matches += 1;
 
             for (id, client) in self.clients.iter_mut() {
-                trace!("Sending filter match stats to client: id={}, match_no={}, total_matches={}", id, match_no, filter_state.num_matches);
+                trace!(
+                    "Sending filter match stats to client: id={}, match_no={}, total_matches={}",
+                    id,
+                    match_no,
+                    filter_state.num_matches
+                );
                 client
                     .channel
                     .send(FFResp::ViewUpdate {
                         update: FileResp::Stats {
-                            file_lines: filter_state.num_matches,
-                            file_bytes: 0,
+                            view_lines: filter_state.num_matches,
+                            file_lines,
+                            file_bytes: 0, // TODO: Not pretty... don't want this field.
                         },
                     })
                     .await?;
-                trace!("Filter match stats sent successfully to client: id={}, match_no={}", id, match_no);
+                trace!(
+                    "Filter match stats sent successfully to client: id={}, match_no={}",
+                    id,
+                    match_no
+                );
 
                 if client.interested.remove(&match_no) || client.tailing {
                     trace!(
@@ -483,21 +508,56 @@ impl FFile {
                             },
                         })
                         .await?;
-                    trace!("Matched line content sent successfully to client: id={}, match_no={}", client.id, match_no);
+                    trace!(
+                        "Matched line content sent successfully to client: id={}, match_no={}",
+                        client.id,
+                        match_no
+                    );
                 }
             }
         } else {
             trace!("Line does not match");
+            for (id, client) in self.clients.iter_mut() {
+                trace!(
+                    "Sending filter not matched stats to client: id={}, total_matches={}, file_lines={}",
+                    id,
+                    filter_state.num_matches,
+                    file_lines,
+                );
+                client
+                    .channel
+                    .send(FFResp::ViewUpdate {
+                        update: FileResp::Stats {
+                            view_lines: filter_state.num_matches,
+                            file_lines,
+                            file_bytes: 0, // TODO: Not pretty... don't want this field.
+                        },
+                    })
+                    .await?;
+                trace!(
+                    "Filter no match stats sent successfully to client: id={}, file_lines={}",
+                    id,
+                    file_lines,
+                );
+            }
         }
 
-        trace!("Sending continued spooling GetLine request to IFile: id={}, line_no={}", self.id, filter_state.next_line_to_request);
+        trace!(
+            "Sending continued spooling GetLine request to IFile: id={}, line_no={}",
+            self.id,
+            filter_state.next_line_to_request
+        );
         self.if_req_sender
             .send(FileReq::GetLine {
                 id: self.id.clone(),
                 line_no: filter_state.next_line_to_request,
             })
             .await?;
-        trace!("Continued spooling GetLine request sent successfully: id={}, line_no={}", self.id, filter_state.next_line_to_request);
+        trace!(
+            "Continued spooling GetLine request sent successfully: id={}, line_no={}",
+            self.id,
+            filter_state.next_line_to_request
+        );
 
         filter_state.next_line_to_request += 1;
 
@@ -505,7 +565,6 @@ impl FFile {
     }
 
     async fn handle_ifile_update(&mut self, update: IFResp<String>) -> Result<()> {
-        trace!("XXX Handling ifile update: {:?}", update);
         match update {
             IFResp::ViewUpdate {
                 update:
@@ -545,7 +604,11 @@ impl FFile {
                                 },
                             })
                             .await?;
-                        trace!("Requested filter line sent successfully to client: id={}, match_no={}", id, match_no);
+                        trace!(
+                            "Requested filter line sent successfully to client: id={}, match_no={}",
+                            id,
+                            match_no
+                        );
                     }
                 } else {
                     self.next_spooling(line_no, line_content, partial).await?;

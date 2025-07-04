@@ -41,6 +41,7 @@ pub enum FileReq<T> {
 #[derive(Debug)]
 pub enum FileResp<L> {
     Stats {
+        view_lines: usize,
         file_lines: usize,
         file_bytes: u64,
     },
@@ -241,6 +242,7 @@ impl<BF: BackingFile> IFile<BF> {
                         .channel
                         .send(IFResp::ViewUpdate {
                             update: FileResp::Stats {
+                                view_lines: self.file_lines,
                                 file_lines: self.file_lines,
                                 file_bytes,
                             },
@@ -395,6 +397,7 @@ impl<BF: BackingFile> IFile<BF> {
                 let send_result = client_sender
                     .send(IFResp::ViewUpdate {
                         update: FileResp::Stats {
+                            view_lines: self.file_lines,
                             file_lines: self.file_lines,
                             file_bytes: self.file_bytes,
                         },
@@ -674,13 +677,15 @@ mod tests {
         if let IFResp::ViewUpdate {
             update:
                 FileResp::Stats {
+                    view_lines,
                     file_lines,
                     file_bytes,
                 },
         } = message
         {
             if let Some(expected_lines) = expected_lines {
-                assert_eq!(file_lines, expected_lines, "{}: Wrong lines", context);
+                assert_eq!(file_lines, expected_lines, "{}: Wrong file_lines", context);
+                assert_eq!(view_lines, expected_lines, "{}: Wrong view_lines", context);
             }
             if let Some(expected_bytes) = expected_bytes {
                 assert_eq!(

@@ -107,7 +107,7 @@ impl<'a, T: std::marker::Send + 'static, L: Clone + Default + LineContent> State
         state.height_hint = height as usize;
         state.width_hint = width as usize;
 
-        let num_lines = state.view.get_stats().file_lines;
+        let num_lines = state.view.get_stats().view_lines;
 
         let current = state.view.current();
 
@@ -287,7 +287,7 @@ impl Tui {
                     .viewport_content_length(self.content_state.view.get_viewport_height());
                 self.filter_scroll_state = self
                     .filter_scroll_state
-                    .content_length(self.filter_state.view.get_stats().file_lines)
+                    .content_length(self.filter_state.view.get_stats().view_lines)
                     .viewport_content_length(self.filter_state.view.get_viewport_height());
 
                 trace!("Draw!");
@@ -594,7 +594,7 @@ impl Tui {
                 self.filter_state.view.current(),
                 delta,
                 0,
-                self.filter_state.view.get_stats().file_lines - 1,
+                self.filter_state.view.get_stats().view_lines - 1,
             )
         };
 
@@ -615,12 +615,12 @@ impl Tui {
     }
 
     async fn bottom(&mut self) -> Result<()> {
-        let file_lines = if self.current_window {
-            self.content_state.view.get_stats().file_lines
+        let view_lines = if self.current_window {
+            self.content_state.view.get_stats().view_lines
         } else {
-            self.filter_state.view.get_stats().file_lines
+            self.filter_state.view.get_stats().view_lines
         };
-        self.place(file_lines - 1).await
+        self.place(view_lines - 1).await
     }
 
     async fn center(&mut self) -> Result<()> {
@@ -784,9 +784,10 @@ impl Tui {
             Span::from("  "),
             Tui::draw_checkbox("Tail", self.filter_tail),
         ]);
-        let filter_control_stats = Line::from(self.compute_filter_stats())
-            .reversed()
-            .alignment(Alignment::Right);
+        let filter_control_stats =
+            Line::from(self.compute_filter_stats(self.content_state.content_num_lines))
+                .reversed()
+                .alignment(Alignment::Right);
         let filter_control_layout = Layout::horizontal([
             Constraint::Fill(1),
             Constraint::Length(20),
@@ -900,12 +901,20 @@ impl Tui {
         )
     }
 
-    fn compute_filter_stats(&mut self) -> String {
+    fn compute_filter_stats(&mut self, num_lines: usize) -> String {
         let stats = self.filter_state.view.get_stats();
 
+        let perc = if stats.file_lines > 0 {
+            &(((stats.file_lines as f32 / num_lines as f32) * 100_f32) as usize)
+                .to_formatted_string(&Locale::en)
+        } else {
+            "-"
+        };
+
         format!(
-            "{} matches",
-            stats.file_lines.to_formatted_string(&Locale::en)
+            "{} M / {}%",
+            stats.view_lines.to_formatted_string(&Locale::en),
+            perc
         )
     }
 
