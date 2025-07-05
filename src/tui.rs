@@ -922,7 +922,7 @@ impl Tui {
         frame.render_widget(Clear, area);
 
         let surrounding_block =
-            Block::bordered().title("Filter (Enter to apply, Esc to close, C-x to toggle)");
+            Block::bordered().title("Filter (Enter to apply, Esc to close, C-_ to toggle)");
         let inner_area = surrounding_block.inner(area);
 
         Tui::draw_filter_edit(filter_edit, inner_area, frame);
@@ -964,7 +964,7 @@ impl Tui {
         let filter_type = Line::from(vec![
             Span::raw("   "),
             Tui::draw_radiobutton(
-                "In[S]ensitive",
+                "In[s]ensitive",
                 filter_edit.filter_type == FilterType::SimpleCaseInsensitive,
             ),
             Span::raw("  "),

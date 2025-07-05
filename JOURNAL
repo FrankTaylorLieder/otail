@@ -361,3 +361,7 @@ Commit: a948e23
     - Send stats for every spooled line so we can report progress.
   - RESOLVED: It seems to get jammed at 82% when spooling a long file. 
     - Was calculating the % wrong, need file_lines and content file_lines.
+
+Commit: 048d3e5
+
+
