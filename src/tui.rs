@@ -276,22 +276,13 @@ impl Tui {
             filter_ifresp_sender,
         );
 
-        let colouring = ColouringSpec::new().set_rules(vec![
-            ColouringRule {
-                enabled: true,
-                filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "hello")
-                    .expect("Failed to build sample filter spec"),
-                fg_colour: Some(Colour::Red),
-                bg_colour: None,
-            },
-            ColouringRule {
-                enabled: true,
-                filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "123")
-                    .expect("Failed to unwrap 123"),
-                fg_colour: Some(Colour::Black),
-                bg_colour: Some(Colour::Green),
-            },
-        ]);
+        let colouring = ColouringSpec::new().set_rules(vec![ColouringRule {
+            enabled: true,
+            filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "error")
+                .expect("Failed to build sample filter spec"),
+            fg_colour: Some(Colour::Red),
+            bg_colour: None,
+        }]);
 
         let s = Self {
             path,
@@ -563,10 +554,12 @@ impl Tui {
                             // Cycle forwards through focus areas
                             self.cycle_colouring_focus();
                         }
-                        (KeyCode::Up, KeyModifiers::SHIFT) | (KeyCode::Char('K'), KeyModifiers::SHIFT) => {
+                        (KeyCode::Up, KeyModifiers::SHIFT)
+                        | (KeyCode::Char('K'), KeyModifiers::SHIFT) => {
                             self.handle_colouring_move_rule_up();
                         }
-                        (KeyCode::Down, KeyModifiers::SHIFT) | (KeyCode::Char('J'), KeyModifiers::SHIFT) => {
+                        (KeyCode::Down, KeyModifiers::SHIFT)
+                        | (KeyCode::Char('J'), KeyModifiers::SHIFT) => {
                             self.handle_colouring_move_rule_down();
                         }
                         (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
@@ -628,8 +621,13 @@ impl Tui {
                             }
                         }
                         // Handle color selection keys (works regardless of focus area)
-                        (KeyCode::Char('1'..='9' | '0'), _) | 
-                        (KeyCode::Char('!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')'), _) => {
+                        (KeyCode::Char('1'..='9' | '0'), _)
+                        | (
+                            KeyCode::Char(
+                                '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')',
+                            ),
+                            _,
+                        ) => {
                             self.handle_colouring_color_key(&key.code, &key.modifiers);
                         }
                         // Handle other keys when focus is on color picker
