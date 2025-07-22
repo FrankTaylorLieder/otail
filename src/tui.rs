@@ -555,14 +555,18 @@ impl Tui {
                     // Showing the colouring edit dialog.
                     (_, Some(colouring_edit)) => match (key.code, key.modifiers) {
                         (KeyCode::Esc, _) => self.colouring_edit = None,
+                        (KeyCode::BackTab, _) => {
+                            // Cycle backwards through focus areas (Shift+Tab)
+                            self.cycle_colouring_focus_backwards();
+                        }
                         (KeyCode::Tab, _) => {
-                            // Cycle through focus areas
+                            // Cycle forwards through focus areas
                             self.cycle_colouring_focus();
                         }
-                        (KeyCode::Up, KeyModifiers::SHIFT) => {
+                        (KeyCode::Up, KeyModifiers::SHIFT) | (KeyCode::Char('K'), KeyModifiers::SHIFT) => {
                             self.handle_colouring_move_rule_up();
                         }
-                        (KeyCode::Down, KeyModifiers::SHIFT) => {
+                        (KeyCode::Down, KeyModifiers::SHIFT) | (KeyCode::Char('J'), KeyModifiers::SHIFT) => {
                             self.handle_colouring_move_rule_down();
                         }
                         (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
@@ -623,12 +627,17 @@ impl Tui {
                                 }
                             }
                         }
-                        // Handle color selection keys when focus is on color picker
-                        _ if colouring_edit.focus_area == ColouringFocusArea::ColourPicker => {
+                        // Handle color selection keys (works regardless of focus area)
+                        (KeyCode::Char('1'..='9' | '0'), _) | 
+                        (KeyCode::Char('!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')'), _) => {
                             self.handle_colouring_color_key(&key.code, &key.modifiers);
                         }
+                        // Handle other keys when focus is on color picker
+                        _ if colouring_edit.focus_area == ColouringFocusArea::ColourPicker => {
+                            // Any other keys in color picker area are ignored
+                        }
                         _ => {
-                            // For rules list, we handle Up/Down above, other keys are ignored
+                            // For rules list, other keys are ignored
                         }
                     },
                 }
@@ -909,6 +918,16 @@ impl Tui {
         }
     }
 
+    fn cycle_colouring_focus_backwards(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            colouring_edit.focus_area = match colouring_edit.focus_area {
+                ColouringFocusArea::RulesList => ColouringFocusArea::ColourPicker,
+                ColouringFocusArea::PatternEditor => ColouringFocusArea::RulesList,
+                ColouringFocusArea::ColourPicker => ColouringFocusArea::PatternEditor,
+            };
+        }
+    }
+
     fn handle_colouring_up_key(&mut self) {
         if let Some(colouring_edit) = &mut self.colouring_edit {
             match colouring_edit.focus_area {
@@ -948,38 +967,32 @@ impl Tui {
         }
     }
 
-    fn handle_colouring_color_key(&mut self, key_code: &KeyCode, modifiers: &KeyModifiers) {
+    fn handle_colouring_color_key(&mut self, key_code: &KeyCode, _modifiers: &KeyModifiers) {
         if let Some(colouring_edit) = &mut self.colouring_edit {
-            if modifiers.contains(KeyModifiers::SHIFT) {
-                // Background color selection (Shift+number)
-                match key_code {
-                    KeyCode::Char('!') => colouring_edit.selected_bg_color = None, // Shift+1
-                    KeyCode::Char('@') => colouring_edit.selected_bg_color = Some(Colour::Black), // Shift+2
-                    KeyCode::Char('#') => colouring_edit.selected_bg_color = Some(Colour::Red), // Shift+3
-                    KeyCode::Char('$') => colouring_edit.selected_bg_color = Some(Colour::Green), // Shift+4
-                    KeyCode::Char('%') => colouring_edit.selected_bg_color = Some(Colour::Blue), // Shift+5
-                    KeyCode::Char('^') => colouring_edit.selected_bg_color = Some(Colour::Yellow), // Shift+6
-                    KeyCode::Char('&') => colouring_edit.selected_bg_color = Some(Colour::Magenta), // Shift+7
-                    KeyCode::Char('*') => colouring_edit.selected_bg_color = Some(Colour::Cyan), // Shift+8
-                    KeyCode::Char('(') => colouring_edit.selected_bg_color = Some(Colour::White), // Shift+9
-                    KeyCode::Char(')') => colouring_edit.selected_bg_color = Some(Colour::Gray), // Shift+0
-                    _ => {}
-                }
-            } else {
-                // Foreground color selection (just number)
-                match key_code {
-                    KeyCode::Char('1') => colouring_edit.selected_fg_color = None,
-                    KeyCode::Char('2') => colouring_edit.selected_fg_color = Some(Colour::Black),
-                    KeyCode::Char('3') => colouring_edit.selected_fg_color = Some(Colour::Red),
-                    KeyCode::Char('4') => colouring_edit.selected_fg_color = Some(Colour::Green),
-                    KeyCode::Char('5') => colouring_edit.selected_fg_color = Some(Colour::Blue),
-                    KeyCode::Char('6') => colouring_edit.selected_fg_color = Some(Colour::Yellow),
-                    KeyCode::Char('7') => colouring_edit.selected_fg_color = Some(Colour::Magenta),
-                    KeyCode::Char('8') => colouring_edit.selected_fg_color = Some(Colour::Cyan),
-                    KeyCode::Char('9') => colouring_edit.selected_fg_color = Some(Colour::White),
-                    KeyCode::Char('0') => colouring_edit.selected_fg_color = Some(Colour::Gray),
-                    _ => {}
-                }
+            match key_code {
+                // Background color selection (shifted symbols)
+                KeyCode::Char('!') => colouring_edit.selected_bg_color = None, // Shift+1
+                KeyCode::Char('@') => colouring_edit.selected_bg_color = Some(Colour::Black), // Shift+2
+                KeyCode::Char('#') => colouring_edit.selected_bg_color = Some(Colour::Red), // Shift+3
+                KeyCode::Char('$') => colouring_edit.selected_bg_color = Some(Colour::Green), // Shift+4
+                KeyCode::Char('%') => colouring_edit.selected_bg_color = Some(Colour::Blue), // Shift+5
+                KeyCode::Char('^') => colouring_edit.selected_bg_color = Some(Colour::Yellow), // Shift+6
+                KeyCode::Char('&') => colouring_edit.selected_bg_color = Some(Colour::Magenta), // Shift+7
+                KeyCode::Char('*') => colouring_edit.selected_bg_color = Some(Colour::Cyan), // Shift+8
+                KeyCode::Char('(') => colouring_edit.selected_bg_color = Some(Colour::White), // Shift+9
+                KeyCode::Char(')') => colouring_edit.selected_bg_color = Some(Colour::Gray), // Shift+0
+                // Foreground color selection (number keys)
+                KeyCode::Char('1') => colouring_edit.selected_fg_color = None,
+                KeyCode::Char('2') => colouring_edit.selected_fg_color = Some(Colour::Black),
+                KeyCode::Char('3') => colouring_edit.selected_fg_color = Some(Colour::Red),
+                KeyCode::Char('4') => colouring_edit.selected_fg_color = Some(Colour::Green),
+                KeyCode::Char('5') => colouring_edit.selected_fg_color = Some(Colour::Blue),
+                KeyCode::Char('6') => colouring_edit.selected_fg_color = Some(Colour::Yellow),
+                KeyCode::Char('7') => colouring_edit.selected_fg_color = Some(Colour::Magenta),
+                KeyCode::Char('8') => colouring_edit.selected_fg_color = Some(Colour::Cyan),
+                KeyCode::Char('9') => colouring_edit.selected_fg_color = Some(Colour::White),
+                KeyCode::Char('0') => colouring_edit.selected_fg_color = Some(Colour::Gray),
+                _ => {}
             }
 
             // Update the current rule with the new color selection immediately
@@ -1261,9 +1274,7 @@ impl Tui {
         let area = Tui::popup_area(area, 80, 70);
         frame.render_widget(Clear, area);
 
-        let surrounding_block = Block::bordered().title(
-            "Colouring (Tab=focus, j/k/↑↓=nav, +/-=add/del, Shift+↑↓=move, Enter=apply, Esc=close)",
-        );
+        let surrounding_block = Block::bordered().title("Colouring");
         let inner_area = surrounding_block.inner(area);
 
         let colouring_dlg_layout = Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]);
@@ -1293,7 +1304,7 @@ impl Tui {
         let rules_title = if colouring_edit.pending_deletion.is_some() {
             "⚠️ Press 'y' to DELETE rule, any other key to CANCEL"
         } else {
-            "Rules"
+            "Rules (Tab/Shift+Tab=focus, j/k/↑↓=nav, +/-=add/del, Shift+j/k/↑↓=move, Enter=apply, Esc=close)"
         };
 
         let rules_block = Block::new()
