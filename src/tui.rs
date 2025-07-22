@@ -200,6 +200,19 @@ struct FilterEditState {
 #[derive(Debug, Clone)]
 struct ColouringEditState {
     spec: ColouringSpec,
+    selected_rule_index: usize,
+    focus_area: ColouringFocusArea,
+    filter_edit_state: FilterEditState,
+    selected_fg_color: Option<Colour>,
+    selected_bg_color: Option<Colour>,
+    pending_deletion: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ColouringFocusArea {
+    RulesList,
+    PatternEditor,
+    ColourPicker,
 }
 
 pub struct Tui {
@@ -542,12 +555,80 @@ impl Tui {
                     // Showing the colouring edit dialog.
                     (_, Some(colouring_edit)) => match (key.code, key.modifiers) {
                         (KeyCode::Esc, _) => self.colouring_edit = None,
-                        // XXX Fill in the rest of the colouring keys
+                        (KeyCode::Tab, _) => {
+                            // Cycle through focus areas
+                            self.cycle_colouring_focus();
+                        }
+                        (KeyCode::Up, KeyModifiers::SHIFT) => {
+                            self.handle_colouring_move_rule_up();
+                        }
+                        (KeyCode::Down, KeyModifiers::SHIFT) => {
+                            self.handle_colouring_move_rule_down();
+                        }
+                        (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                            self.handle_colouring_up_key();
+                        }
+                        (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                            self.handle_colouring_down_key();
+                        }
+                        (KeyCode::Insert, _) | (KeyCode::Char('+'), _) => {
+                            self.handle_colouring_add_rule();
+                        }
+                        (KeyCode::Delete, _) | (KeyCode::Char('-'), _) => {
+                            self.handle_colouring_delete_rule();
+                        }
+                        (KeyCode::Char('y'), _) if colouring_edit.pending_deletion.is_some() => {
+                            self.handle_colouring_confirm_deletion();
+                        }
+                        _ if colouring_edit.pending_deletion.is_some() => {
+                            // Any other key cancels deletion
+                            self.handle_colouring_cancel_deletion();
+                        }
+                        (KeyCode::Enter, _) => {
+                            // Apply changes and close dialog
+                            self.apply_colouring_changes();
+                            self.colouring_edit = None;
+                        }
+                        // Handle pattern editing keys when focus is on pattern editor
+                        _ if colouring_edit.focus_area == ColouringFocusArea::PatternEditor => {
+                            match (key.code, key.modifiers) {
+                                (KeyCode::Char('t'), KeyModifiers::CONTROL) => {
+                                    let colouring_edit = self.colouring_edit.as_mut().unwrap();
+                                    colouring_edit.filter_edit_state.enabled =
+                                        !colouring_edit.filter_edit_state.enabled;
+                                }
+                                (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
+                                    let colouring_edit = self.colouring_edit.as_mut().unwrap();
+                                    colouring_edit.filter_edit_state.filter_type =
+                                        FilterType::SimpleCaseInsensitive;
+                                }
+                                (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                    let colouring_edit = self.colouring_edit.as_mut().unwrap();
+                                    colouring_edit.filter_edit_state.filter_type =
+                                        FilterType::SimpleCaseSensitive;
+                                }
+                                (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                                    let colouring_edit = self.colouring_edit.as_mut().unwrap();
+                                    colouring_edit.filter_edit_state.filter_type =
+                                        FilterType::Regex;
+                                }
+                                _ => {
+                                    let colouring_edit = self.colouring_edit.as_mut().unwrap();
+                                    colouring_edit
+                                        .filter_edit_state
+                                        .input
+                                        .handle_event(&Event::Key(*key));
+                                    // Update the currently selected rule with the new pattern
+                                    self.update_selected_rule_from_editor();
+                                }
+                            }
+                        }
+                        // Handle color selection keys when focus is on color picker
+                        _ if colouring_edit.focus_area == ColouringFocusArea::ColourPicker => {
+                            self.handle_colouring_color_key(&key.code, &key.modifiers);
+                        }
                         _ => {
-                            warn!(
-                                "Unhandled colouring edit key: {:?} / {:?}",
-                                key.code, key.modifiers
-                            );
+                            // For rules list, we handle Up/Down above, other keys are ignored
                         }
                     },
                 }
@@ -792,9 +873,256 @@ impl Tui {
     }
 
     fn start_edit_colouring(&mut self) {
+        let first_rule = self.colouring.rules().get(0);
+        let initial_filter_state = if let Some(rule) = first_rule {
+            FilterEditState {
+                enabled: rule.enabled,
+                input: rule.filter_spec.filter_pattern.clone().into(),
+                filter_type: rule.filter_spec.filter_type.clone(),
+            }
+        } else {
+            FilterEditState {
+                enabled: true,
+                input: "".into(),
+                filter_type: FilterType::SimpleCaseInsensitive,
+            }
+        };
+
         self.colouring_edit = Some(ColouringEditState {
             spec: self.colouring.clone(),
+            selected_rule_index: 0,
+            focus_area: ColouringFocusArea::RulesList,
+            filter_edit_state: initial_filter_state,
+            selected_fg_color: first_rule.map(|r| r.fg_colour.clone()).flatten(),
+            selected_bg_color: first_rule.map(|r| r.bg_colour.clone()).flatten(),
+            pending_deletion: None,
         })
+    }
+
+    fn cycle_colouring_focus(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            colouring_edit.focus_area = match colouring_edit.focus_area {
+                ColouringFocusArea::RulesList => ColouringFocusArea::PatternEditor,
+                ColouringFocusArea::PatternEditor => ColouringFocusArea::ColourPicker,
+                ColouringFocusArea::ColourPicker => ColouringFocusArea::RulesList,
+            };
+        }
+    }
+
+    fn handle_colouring_up_key(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            match colouring_edit.focus_area {
+                ColouringFocusArea::RulesList => {
+                    if colouring_edit.selected_rule_index > 0 {
+                        colouring_edit.selected_rule_index -= 1;
+                        self.load_selected_rule_into_editor();
+                    }
+                }
+                ColouringFocusArea::ColourPicker => {
+                    // Handle color selection cycling
+                    // This is a simplified version - in a full implementation,
+                    // you'd want to track which color is being selected
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_colouring_down_key(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            match colouring_edit.focus_area {
+                ColouringFocusArea::RulesList => {
+                    let max_index = colouring_edit.spec.rules().len().saturating_sub(1);
+                    if colouring_edit.selected_rule_index < max_index {
+                        colouring_edit.selected_rule_index += 1;
+                        self.load_selected_rule_into_editor();
+                    }
+                }
+                ColouringFocusArea::ColourPicker => {
+                    // Handle color selection cycling
+                    // This is a simplified version - in a full implementation,
+                    // you'd want to track which color is being selected
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn handle_colouring_color_key(&mut self, key_code: &KeyCode, modifiers: &KeyModifiers) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            if modifiers.contains(KeyModifiers::SHIFT) {
+                // Background color selection (Shift+number)
+                match key_code {
+                    KeyCode::Char('!') => colouring_edit.selected_bg_color = None, // Shift+1
+                    KeyCode::Char('@') => colouring_edit.selected_bg_color = Some(Colour::Black), // Shift+2
+                    KeyCode::Char('#') => colouring_edit.selected_bg_color = Some(Colour::Red), // Shift+3
+                    KeyCode::Char('$') => colouring_edit.selected_bg_color = Some(Colour::Green), // Shift+4
+                    KeyCode::Char('%') => colouring_edit.selected_bg_color = Some(Colour::Blue), // Shift+5
+                    KeyCode::Char('^') => colouring_edit.selected_bg_color = Some(Colour::Yellow), // Shift+6
+                    KeyCode::Char('&') => colouring_edit.selected_bg_color = Some(Colour::Magenta), // Shift+7
+                    KeyCode::Char('*') => colouring_edit.selected_bg_color = Some(Colour::Cyan), // Shift+8
+                    KeyCode::Char('(') => colouring_edit.selected_bg_color = Some(Colour::White), // Shift+9
+                    KeyCode::Char(')') => colouring_edit.selected_bg_color = Some(Colour::Gray), // Shift+0
+                    _ => {}
+                }
+            } else {
+                // Foreground color selection (just number)
+                match key_code {
+                    KeyCode::Char('1') => colouring_edit.selected_fg_color = None,
+                    KeyCode::Char('2') => colouring_edit.selected_fg_color = Some(Colour::Black),
+                    KeyCode::Char('3') => colouring_edit.selected_fg_color = Some(Colour::Red),
+                    KeyCode::Char('4') => colouring_edit.selected_fg_color = Some(Colour::Green),
+                    KeyCode::Char('5') => colouring_edit.selected_fg_color = Some(Colour::Blue),
+                    KeyCode::Char('6') => colouring_edit.selected_fg_color = Some(Colour::Yellow),
+                    KeyCode::Char('7') => colouring_edit.selected_fg_color = Some(Colour::Magenta),
+                    KeyCode::Char('8') => colouring_edit.selected_fg_color = Some(Colour::Cyan),
+                    KeyCode::Char('9') => colouring_edit.selected_fg_color = Some(Colour::White),
+                    KeyCode::Char('0') => colouring_edit.selected_fg_color = Some(Colour::Gray),
+                    _ => {}
+                }
+            }
+
+            // Update the current rule with the new color selection immediately
+            self.update_selected_rule_from_editor();
+        }
+    }
+
+    fn load_selected_rule_into_editor(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            if let Some(rule) = colouring_edit
+                .spec
+                .rules()
+                .get(colouring_edit.selected_rule_index)
+            {
+                colouring_edit.filter_edit_state = FilterEditState {
+                    enabled: rule.enabled,
+                    input: rule.filter_spec.filter_pattern.clone().into(),
+                    filter_type: rule.filter_spec.filter_type.clone(),
+                };
+                colouring_edit.selected_fg_color = rule.fg_colour.clone();
+                colouring_edit.selected_bg_color = rule.bg_colour.clone();
+            }
+        }
+    }
+
+    fn update_selected_rule_from_editor(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            if let Ok(filter_spec) = FilterSpec::new(
+                colouring_edit.filter_edit_state.filter_type.clone(),
+                colouring_edit.filter_edit_state.input.value(),
+            ) {
+                let updated_rule = ColouringRule {
+                    enabled: colouring_edit.filter_edit_state.enabled,
+                    filter_spec,
+                    fg_colour: colouring_edit.selected_fg_color.clone(),
+                    bg_colour: colouring_edit.selected_bg_color.clone(),
+                };
+
+                colouring_edit
+                    .spec
+                    .update_rule(colouring_edit.selected_rule_index, updated_rule);
+            }
+        }
+    }
+
+    fn apply_colouring_changes(&mut self) {
+        // First update the current rule with any pending editor changes
+        self.update_selected_rule_from_editor();
+
+        // Apply the modified spec to the main colouring
+        if let Some(colouring_edit) = &self.colouring_edit {
+            self.colouring = colouring_edit.spec.clone();
+
+            // Also update the colouring in both UI panes
+            self.content_state.colouring = colouring_edit.spec.clone();
+            self.filter_state.colouring = colouring_edit.spec.clone();
+        }
+    }
+
+    fn handle_colouring_add_rule(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            let new_rule = ColouringRule::default();
+            let insert_index = colouring_edit.selected_rule_index + 1;
+
+            colouring_edit
+                .spec
+                .add_rule(new_rule.clone(), Some(insert_index));
+            colouring_edit.selected_rule_index = insert_index;
+
+            // Load the new rule into the editor
+            colouring_edit.filter_edit_state = FilterEditState {
+                enabled: new_rule.enabled,
+                input: new_rule.filter_spec.filter_pattern.clone().into(),
+                filter_type: new_rule.filter_spec.filter_type.clone(),
+            };
+            colouring_edit.selected_fg_color = new_rule.fg_colour.clone();
+            colouring_edit.selected_bg_color = new_rule.bg_colour.clone();
+        }
+    }
+
+    fn handle_colouring_delete_rule(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            if !colouring_edit.spec.rules().is_empty() {
+                colouring_edit.pending_deletion = Some(colouring_edit.selected_rule_index);
+            }
+        }
+    }
+
+    fn handle_colouring_confirm_deletion(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            if let Some(deletion_index) = colouring_edit.pending_deletion.take() {
+                if colouring_edit.spec.remove_rule(deletion_index).is_some() {
+                    // Adjust selection after deletion
+                    let max_index = colouring_edit.spec.rules().len().saturating_sub(1);
+                    if colouring_edit.selected_rule_index > max_index {
+                        colouring_edit.selected_rule_index = max_index;
+                    }
+
+                    // Load the current rule (or clear if no rules left)
+                    if colouring_edit.spec.rules().is_empty() {
+                        // Reset to default state when no rules
+                        let default_rule = ColouringRule::default();
+                        colouring_edit.filter_edit_state = FilterEditState {
+                            enabled: default_rule.enabled,
+                            input: default_rule.filter_spec.filter_pattern.clone().into(),
+                            filter_type: default_rule.filter_spec.filter_type.clone(),
+                        };
+                        colouring_edit.selected_fg_color = None;
+                        colouring_edit.selected_bg_color = None;
+                    } else {
+                        self.load_selected_rule_into_editor();
+                    }
+                }
+            }
+        }
+    }
+
+    fn handle_colouring_cancel_deletion(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            colouring_edit.pending_deletion = None;
+        }
+    }
+
+    fn handle_colouring_move_rule_up(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            if colouring_edit
+                .spec
+                .move_rule_up(colouring_edit.selected_rule_index)
+            {
+                colouring_edit.selected_rule_index -= 1;
+            }
+        }
+    }
+
+    fn handle_colouring_move_rule_down(&mut self) {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
+            if colouring_edit
+                .spec
+                .move_rule_down(colouring_edit.selected_rule_index)
+            {
+                colouring_edit.selected_rule_index += 1;
+            }
+        }
     }
 
     fn draw_checkbox(label: &str, current: bool) -> Span<'_> {
@@ -929,23 +1257,241 @@ impl Tui {
         frame.render_widget(surrounding_block, area);
     }
 
-    fn draw_colouring_dlg(filter_edit: &ColouringEditState, area: Rect, frame: &mut Frame) {
-        let area = Tui::popup_area(area, 60, 60);
+    fn draw_colouring_dlg(colouring_edit: &ColouringEditState, area: Rect, frame: &mut Frame) {
+        let area = Tui::popup_area(area, 80, 70);
         frame.render_widget(Clear, area);
 
-        let surrounding_block = Block::bordered().title("Colouring");
+        let surrounding_block = Block::bordered().title(
+            "Colouring (Tab=focus, j/k/↑↓=nav, +/-=add/del, Shift+↑↓=move, Enter=apply, Esc=close)",
+        );
         let inner_area = surrounding_block.inner(area);
 
-        let colouring_dlg_layout = Layout::vertical([Constraint::Fill(1), Constraint::Length(4)]);
-        let [summary_area, edit_area] = colouring_dlg_layout.areas(inner_area);
+        let colouring_dlg_layout = Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]);
+        let [rules_area, edit_area] = colouring_dlg_layout.areas(inner_area);
 
-        frame.render_widget(Line::from("    Rules"), summary_area);
-        frame.render_widget(Line::from("    Edit"), edit_area);
+        // Draw rules list (top section)
+        Tui::draw_colouring_rules_list(colouring_edit, rules_area, frame);
+
+        // Draw edit section (bottom section)
+        Tui::draw_colouring_edit_section(colouring_edit, edit_area, frame);
 
         frame.render_widget(surrounding_block, area);
     }
 
-    fn draw_colouring_rule(colouring_rule: &mut ColouringRule) {}
+    fn draw_colouring_rules_list(
+        colouring_edit: &ColouringEditState,
+        area: Rect,
+        frame: &mut Frame,
+    ) {
+        let is_focused = colouring_edit.focus_area == ColouringFocusArea::RulesList;
+        let border_style = if is_focused {
+            symbols::border::THICK
+        } else {
+            symbols::border::PLAIN
+        };
+
+        let rules_title = if colouring_edit.pending_deletion.is_some() {
+            "⚠️ Press 'y' to DELETE rule, any other key to CANCEL"
+        } else {
+            "Rules"
+        };
+
+        let rules_block = Block::new()
+            .borders(Borders::ALL)
+            .border_set(border_style)
+            .title(rules_title);
+        let inner_area = rules_block.inner(area);
+
+        // Create list items for each rule
+        let rules = colouring_edit.spec.rules();
+        let items: Vec<Line> = rules
+            .iter()
+            .enumerate()
+            .map(|(i, rule)| {
+                let enabled_str = if rule.enabled { "✓" } else { "✗" };
+                let fg_str = rule
+                    .fg_colour
+                    .as_ref()
+                    .map(|c| format!("{:?}", c))
+                    .unwrap_or_else(|| "None".to_string());
+                let bg_str = rule
+                    .bg_colour
+                    .as_ref()
+                    .map(|c| format!("{:?}", c))
+                    .unwrap_or_else(|| "None".to_string());
+
+                let text = format!(
+                    "{} {} → fg:{}/bg:{}",
+                    enabled_str,
+                    rule.filter_spec.render(),
+                    fg_str,
+                    bg_str
+                );
+
+                if i == colouring_edit.selected_rule_index {
+                    Line::from(format!("> {}", text))
+                        .style(Style::default().add_modifier(Modifier::BOLD))
+                } else {
+                    Line::from(format!("  {}", text))
+                }
+            })
+            .collect();
+
+        // If no rules, show placeholder
+        let items = if items.is_empty() {
+            vec![Line::from("  No rules defined")]
+        } else {
+            items
+        };
+
+        let list = Paragraph::new(items);
+        frame.render_widget(rules_block, area);
+        frame.render_widget(list, inner_area);
+    }
+
+    fn draw_colouring_edit_section(
+        colouring_edit: &ColouringEditState,
+        area: Rect,
+        frame: &mut Frame,
+    ) {
+        // Split the edit area vertically: pattern editor on top, color picker on bottom
+        let edit_layout = Layout::vertical([Constraint::Fill(1), Constraint::Min(6)]);
+        let [pattern_area, color_area] = edit_layout.areas(area);
+
+        // Draw pattern editor (reusing existing draw_filter_edit)
+        let is_pattern_focused = colouring_edit.focus_area == ColouringFocusArea::PatternEditor;
+        let pattern_border_style = if is_pattern_focused {
+            symbols::border::THICK
+        } else {
+            symbols::border::PLAIN
+        };
+
+        let pattern_block = Block::new()
+            .borders(Borders::ALL)
+            .border_set(pattern_border_style)
+            .title("Pattern");
+        let pattern_inner_area = pattern_block.inner(pattern_area);
+
+        Tui::draw_filter_edit(&colouring_edit.filter_edit_state, pattern_inner_area, frame);
+        frame.render_widget(pattern_block, pattern_area);
+
+        // Draw color picker
+        Tui::draw_colour_picker(colouring_edit, color_area, frame);
+    }
+
+    fn draw_colour_picker(colouring_edit: &ColouringEditState, area: Rect, frame: &mut Frame) {
+        let is_focused = colouring_edit.focus_area == ColouringFocusArea::ColourPicker;
+        let border_style = if is_focused {
+            symbols::border::THICK
+        } else {
+            symbols::border::PLAIN
+        };
+
+        let color_block = Block::new()
+            .borders(Borders::ALL)
+            .border_set(border_style)
+            .title("Colours");
+        let inner_area = color_block.inner(area);
+
+        // Split into two columns: foreground and background
+        let color_layout = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]);
+        let [fg_area, bg_area] = color_layout.areas(inner_area);
+
+        // Draw foreground color options
+        let fg_colors = vec![
+            Line::from(vec![Tui::draw_radiobutton(
+                "[1] (None)",
+                colouring_edit.selected_fg_color.is_none(),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[2] Black",
+                colouring_edit.selected_fg_color == Some(Colour::Black),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[3] Red",
+                colouring_edit.selected_fg_color == Some(Colour::Red),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[4] Green",
+                colouring_edit.selected_fg_color == Some(Colour::Green),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[5] Blue",
+                colouring_edit.selected_fg_color == Some(Colour::Blue),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[6] Yellow",
+                colouring_edit.selected_fg_color == Some(Colour::Yellow),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[7] Magenta",
+                colouring_edit.selected_fg_color == Some(Colour::Magenta),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[8] Cyan",
+                colouring_edit.selected_fg_color == Some(Colour::Cyan),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[9] White",
+                colouring_edit.selected_fg_color == Some(Colour::White),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[0] Gray",
+                colouring_edit.selected_fg_color == Some(Colour::Gray),
+            )]),
+        ];
+
+        // Draw background color options
+        let bg_colors = vec![
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+1] (None)",
+                colouring_edit.selected_bg_color.is_none(),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+2] Black",
+                colouring_edit.selected_bg_color == Some(Colour::Black),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+3] Red",
+                colouring_edit.selected_bg_color == Some(Colour::Red),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+4] Green",
+                colouring_edit.selected_bg_color == Some(Colour::Green),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+5] Blue",
+                colouring_edit.selected_bg_color == Some(Colour::Blue),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+6] Yellow",
+                colouring_edit.selected_bg_color == Some(Colour::Yellow),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+7] Magenta",
+                colouring_edit.selected_bg_color == Some(Colour::Magenta),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+8] Cyan",
+                colouring_edit.selected_bg_color == Some(Colour::Cyan),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+9] White",
+                colouring_edit.selected_bg_color == Some(Colour::White),
+            )]),
+            Line::from(vec![Tui::draw_radiobutton(
+                "[Shift+0] Gray",
+                colouring_edit.selected_bg_color == Some(Colour::Gray),
+            )]),
+        ];
+
+        let fg_paragraph = Paragraph::new(fg_colors).block(Block::bordered().title("Foreground"));
+        let bg_paragraph = Paragraph::new(bg_colors).block(Block::bordered().title("Background"));
+
+        frame.render_widget(color_block, area);
+        frame.render_widget(fg_paragraph, fg_area);
+        frame.render_widget(bg_paragraph, bg_area);
+    }
 
     fn draw_filter_edit(filter_edit: &FilterEditState, inner_area: Rect, frame: &mut Frame) {
         let vertical = Layout::vertical([

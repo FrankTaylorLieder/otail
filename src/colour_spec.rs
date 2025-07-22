@@ -1,4 +1,3 @@
-use log::info;
 use strum::{Display, EnumString, VariantArray};
 
 use crate::filter_spec::FilterSpec;
@@ -31,6 +30,24 @@ pub struct ColouringSpec {
 
 pub type Colours = (Option<Colour>, Option<Colour>);
 
+impl ColouringRule {
+    pub fn default() -> Self {
+        Self {
+            enabled: true,
+            filter_spec: FilterSpec::new(crate::filter_spec::FilterType::SimpleCaseInsensitive, "")
+                .unwrap_or_else(|_| {
+                    FilterSpec::new(
+                        crate::filter_spec::FilterType::SimpleCaseInsensitive,
+                        "pattern",
+                    )
+                    .unwrap()
+                }),
+            fg_colour: None,
+            bg_colour: None,
+        }
+    }
+}
+
 impl ColouringSpec {
     pub fn new() -> Self {
         Self { rules: Vec::new() }
@@ -40,6 +57,52 @@ impl ColouringSpec {
         self.rules = rules;
 
         self
+    }
+
+    pub fn rules(&self) -> &Vec<ColouringRule> {
+        &self.rules
+    }
+
+    pub fn add_rule(&mut self, rule: ColouringRule, index: Option<usize>) {
+        match index {
+            Some(i) if i <= self.rules.len() => self.rules.insert(i, rule),
+            _ => self.rules.push(rule),
+        }
+    }
+
+    pub fn remove_rule(&mut self, index: usize) -> Option<ColouringRule> {
+        if index < self.rules.len() {
+            Some(self.rules.remove(index))
+        } else {
+            None
+        }
+    }
+
+    pub fn move_rule_up(&mut self, index: usize) -> bool {
+        if index > 0 && index < self.rules.len() {
+            self.rules.swap(index - 1, index);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn move_rule_down(&mut self, index: usize) -> bool {
+        if index < self.rules.len().saturating_sub(1) {
+            self.rules.swap(index, index + 1);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn update_rule(&mut self, index: usize, rule: ColouringRule) -> bool {
+        if index < self.rules.len() {
+            self.rules[index] = rule;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn maybe_colour(&self, line: &str) -> Option<Colours> {

@@ -4,7 +4,8 @@
       "Bash(rg:*)",
       "Bash(cargo --list)",
       "Bash(cargo doc:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(cargo:*)"
     ],
     "deny": []
   }
