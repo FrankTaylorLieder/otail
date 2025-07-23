@@ -369,3 +369,7 @@ Commit: 048d3e5
 - Claude coded the UI
 - Removed the default colours
 
+Commit: c405428
+
+Next: load/save colouring rules from preferences file.
+

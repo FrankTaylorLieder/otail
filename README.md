@@ -8,6 +8,8 @@ Note: this is an early stage project.
 
 - Shows a log file in the top content pane.
 - The lower filtered pane shows a filtered view of the file.
+- Highlight interesting content by colouring content in either pane based
+patterns.
 - Sync the top pane to the currently selected filtered pane line.
 - Both panes can tail the file.
 - Handles file truncation.
@@ -16,7 +18,7 @@ Note: this is an early stage project.
 
 (No promises!)
 
-- Colouring. Highlight interesting content wherever it appears in the UI.
+- Persist colouring rules between sessions.
 - Layered filtering. Consecutively apply filters to narrow down a search.
 
 ## Installing
@@ -54,12 +56,22 @@ The file content is displayed without wrapping, one file line per screen line.
 You need to scroll left/right to see content off the screen.
 
 To change the filter expression press `/` which opens up a dialogue box to add
-or change the filter expression (a regex). When applied, any line that matches
-the expression is shown in the filter pane.
+or change the matching pattern for the filter. Patterns can be simple text
+matches (case sensitive or insensitive), or regular expressions. When applied,
+any line that matches the expression is shown in the filter pane.
 
-Pressing `s` will sync the current line of the content pane to the line current
-line in the filtered pane. Pressing `S` will toggle auto-sync, meaning whenever
-the current line of the filtered pane changes, the content pane will be synced.
+Pressing `s` will sync the content pane to match the current line in the
+filtered pane. Pressing `S` will toggle auto-sync, meaning whenever the current
+line of the filtered pane changes, the content pane will be synced to match.
+
+You can highlight content across either pane by opening the colouring dialogue
+by pressing `C`. In this dialogue you can create a set of ordered colouring
+rules, which are applied to all output. The first rule that matches defines the
+colour of a line. Each rule as a matching pattern (just the same as filtering
+above) Each rule as a matching pattern (just the same as filtering above). You
+can set foreground and/or background colours for each rule. (Currently
+colouring rules are lost between `otail` sessions. A default error rule is
+provided for each session.)
 
 Finally, either pane can be toggled to tailing mode which automatically scrolls
 to any new content. Tailing is cancelled in a pane when manually changing the
@@ -102,6 +114,8 @@ Note: the key bindings may change before this reaches its first stable release.
     - Toggle auto-sync.
   - `/`
     - Open the filter edit dialogue.
+  - `C`
+    - Open the colouring edit dialogue.
   - `q`
     - Quit `otail`.
 
@@ -113,6 +127,34 @@ Note: the key bindings may change before this reaches its first stable release.
   - `t`
     - Toggle the filter enabled.
 
+- Colouring dialogue
+  - (`Shift+`)`Tab`
+    - Cycle focus forward/backwards: Rules List → Pattern Editor → Colour Picker → Rules List.
+  - `Esc`
+    - Cancel changes and close the dialogue.
+  - `Enter`
+    - Apply all colouring changes and close the dialogue.
+  - Rules List (when focused)
+    - `j`, `k`, `DOWN`, `UP`
+      - Navigate up/down in the rules list.
+    - `Insert`, `+`
+      - Add new rule with default values.
+    - `Delete`, `-`
+      - Prompt to delete current rule.
+    - `Shift+UP`/`DOWN`, `Shift+K`/`J`
+      - Move current rule up/down in list.
+  - Pattern Editor (when focused)
+    - `Ctrl+t`
+      - Toggle pattern enabled/disabled.
+    - `Ctrl+s`
+      - Set pattern type to Simple Case Insensitive.
+    - `Ctrl+c`
+      - Set pattern type to Simple Case Sensitive.
+    - `Ctrl+r`
+      - Set pattern type to Regex.
+  - Colour Selection (when focused)
+    - (`Shift+`)number:
+      - Select foreground or background colour
 
 ## Contributions
 

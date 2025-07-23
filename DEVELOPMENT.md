@@ -187,3 +187,29 @@ Added comprehensive rule management capabilities with confirmation dialogs, defa
 - `src/colour_spec.rs` - Mutable methods for rule manipulation, default rule constructor
 
 **Testing Recommendation**: Test rule addition with Insert/+, deletion with Delete/- (confirm with 'y', cancel with other keys), reordering with Shift+Up/Down, and ensure all operations update the UI correctly. Verify deletion confirmation prevents accidental loss of rules.
+
+## 2025-07-23 - Updated README with Recently Added Key Bindings
+
+**Request**: Add the recently added key bindings to the README, particularly the colouring functionality that was missing from the documentation.
+
+**Problem Analysis**: 
+- The README.md contained comprehensive key bindings documentation but was missing recently implemented colouring dialog functionality
+- The colouring dialog (`C` key) was implemented but not documented in the user-facing README
+- All colouring dialog key bindings were missing, making the feature difficult for users to discover and use
+
+**Solution**:
+- Added `C` key binding to the main Controls section to open colouring edit dialogue
+- Added complete "Colouring dialogue" section after the existing "Filter dialogue" section
+- Documented all colouring dialog key bindings including:
+  - Focus management (Tab/Shift+Tab)
+  - Rules list navigation (j/k/UP/DOWN) 
+  - Rule management (Insert/+, Delete/-, y for confirmation)
+  - Rule reordering (Shift+UP/DOWN, Shift+K/J)
+  - Pattern editor controls (Ctrl+t/s/c/r)
+  - Color selection (0-9 for foreground, Shift+0-9 for background)
+  - Dialog controls (Enter/Esc)
+
+**Files Modified**:
+- `README.md` - Added colouring dialog key binding to Controls section and comprehensive Colouring dialogue section with all key bindings
+
+**Testing Recommendation**: Verify the README now accurately reflects all available key bindings in the current version of otail, particularly testing that users can discover and use the colouring functionality through the documentation.
