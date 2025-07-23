@@ -5,7 +5,8 @@
       "Bash(cargo --list)",
       "Bash(cargo doc:*)",
       "Bash(cargo check:*)",
-      "Bash(cargo:*)"
+      "Bash(cargo:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

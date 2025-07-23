@@ -213,3 +213,271 @@ Added comprehensive rule management capabilities with confirmation dialogs, defa
 - `README.md` - Added colouring dialog key binding to Controls section and comprehensive Colouring dialogue section with all key bindings
 
 **Testing Recommendation**: Verify the README now accurately reflects all available key bindings in the current version of otail, particularly testing that users can discover and use the colouring functionality through the documentation.
+
+## 2025-07-23 - Restricted Color Selection to Colour Picker Focus Only
+
+**Request**: Update keys so that colour selection is only possible when the colours pane is selected, not from any focus area within the colouring dialog.
+
+**Problem Analysis**: 
+- The current implementation allowed color keys (0-9 and Shift+0-9) to work from any focus area within the colouring dialog
+- This could lead to accidental color changes when users were focused on the Rules List or Pattern Editor
+- The README documentation was updated to show focus requirement, but the code didn't match this behavior
+
+**Solution**:
+- **Code Changes**: Moved color key handling from global scope (lines 623-632) into the focus-specific `ColouringFocusArea::ColourPicker` section
+- **Behavior Change**: Color selection keys now only work when the colour picker pane is specifically focused
+- **Documentation Update**: Enhanced README color selection section with complete color mapping details
+
+**Implementation Details**:
+- Removed global color key handling that worked regardless of focus area
+- Added color key matching within the `ColouringFocusArea::ColourPicker` match arm
+- Preserved all existing color key mappings (0-9 for foreground, Shift+0-9 for background)
+- Maintained immediate rule updates via `update_selected_rule_from_editor()`
+
+**Files Modified**:
+- `src/tui.rs` - Moved color key handling to focus-specific section (lines 624-634)
+- `README.md` - Enhanced color selection documentation with complete color mappings
+
+**Testing Recommendation**: Test that color keys (0-9, Shift+0-9) only work when the colour picker pane is focused, and are ignored when focus is on Rules List or Pattern Editor. Verify Tab navigation still works correctly and color changes are applied immediately when the colour picker is focused.
+
+## 2025-07-23 - Compact Multi-Column Color Picker Layout
+
+**Request**: Change the layout of the colouring panes to use less vertical space by listing several colours per line, adjusting based on the size of the pane.
+
+**Problem Analysis**:
+- The original color picker layout used two separate columns (Foreground/Background) with 10 lines each plus borders
+- This required approximately 12-13 lines total vertical space, which was quite tall
+- The layout was not responsive to terminal width and could not adapt to smaller screens
+- Each color had verbose labels like "[Shift+1] (None)" taking up horizontal space
+
+**Solution**:
+- **Redesigned to compact multi-column layout**: Colors now display in a grid format that adapts to available width
+- **Dynamic column calculation**: Number of columns adjusts based on terminal width (1-5 columns, minimum 16 characters per entry)
+- **Unified foreground/background display**: Each color shows both fg/bg selection status in one entry: "● ○ 1:None"
+- **Full color names**: Clear, readable color names (e.g., "Black", "Red", "Green", "Magenta")
+- **Reduced vertical space**: New layout needs only 4 lines minimum (down from 6) and typically uses 3-4 lines total
+
+**Implementation Details**:
+
+### New Layout Algorithm:
+- **Width-based columns**: `num_cols = max(1, min(5, available_width / 16))`
+- **Row calculation**: `num_rows = (10 colors + num_cols - 1) / num_cols`
+- **Grid arrangement**: Colors arranged in row-major order across columns
+
+### Visual Format:
+- **Old format**: Two separate columns with "[1] (None)" and "[Shift+1] (None)"
+- **New format**: "● ○ 1:None" (or "● ○ 7:Magenta") where:
+  - Left ● = foreground selected, ○ = unselected
+  - Right ● = background selected, ○ = unselected  
+  - "1:None" = key and color name
+
+### Space Efficiency:
+- **Minimum height reduced**: From `Constraint::Min(6)` to `Constraint::Min(4)`
+- **Typical usage**: 3-4 lines for colors + 1 help line = 4-5 lines total (vs. 12-13 previously)
+- **Responsive width**: Automatically uses 1-5 columns based on available space
+
+### Enhanced User Experience:
+- **Updated title**: "Colours (0-9=fg, Shift+0-9=bg)" provides immediate key reference
+- **Inline help**: "● = selected, ○ = unselected (left=fg, right=bg)" when space allows
+- **Preserved functionality**: All color selection behavior remains identical
+
+**Files Modified**:
+- `src/tui.rs` - Completely rewrote `draw_colour_picker` function with dynamic multi-column layout, reduced minimum height constraint from 6 to 4 lines
+
+**Testing Recommendation**: Test the color picker dialog with various terminal widths to verify the dynamic column layout works correctly. Verify that all 10 colors display properly in narrow and wide terminals, color selection still works with 0-9 and Shift+0-9 keys, and the visual indicators (● ○) correctly show foreground/background selection status.
+
+## 2025-07-23 - Updated Color Picker to Use Full Color Names
+
+**Request**: Use full colour names instead of abbreviated ones in the color picker.
+
+**Changes Made**:
+- **Updated color names**: Changed from abbreviated names ("Blk", "Grn", "Blu", etc.) to full names ("Black", "Green", "Blue", "Magenta", etc.)
+- **Adjusted layout calculation**: Increased minimum entry width from 12 to 16 characters to accommodate longer color names like "Magenta"
+- **Maintained responsiveness**: Dynamic column calculation still works with the new width requirements
+
+**Files Modified**:
+- `src/tui.rs` - Updated color data array with full color names, adjusted `min_entry_width` from 12 to 16 characters
+
+**Testing Recommendation**: Verify that full color names display correctly in the color picker and that the dynamic layout still adapts properly to different terminal widths with the updated spacing requirements.
+
+## 2025-07-23 - Added Column Alignment to Color Picker
+
+**Request**: Arrange the color picker items in aligned columns for better visual organization.
+
+**Changes Made**:
+- **Added column width calculation**: `col_width = available_width / num_cols` to determine uniform column spacing
+- **Implemented left-aligned padding**: Each entry (except the last column) is padded to the calculated column width using `format!("{:<width$}", entry, width = col_width)`
+- **Improved visual organization**: Colors now display in properly aligned columns regardless of color name length
+
+**Technical Details**:
+- **Alignment method**: Left-aligned padding ensures consistent column spacing
+- **Edge case handling**: Last column doesn't get padding to avoid unnecessary trailing spaces
+- **Dynamic adaptation**: Column alignment works with the existing responsive layout system
+
+**Files Modified**:
+- `src/tui.rs` - Added column width calculation and left-aligned padding for color entries
+
+**Testing Recommendation**: Test the color picker with various terminal widths to verify that colors align properly in columns and that the alignment works correctly with 1-5 columns depending on available space.
+
+## 2025-07-23 - Changed Color Keys to Match First Letter of Color Names
+
+**Request**: Change the keys for colours to match the first letter of the colour for the foreground and shifted version for background. Grey should use 'x' as its key.
+
+**Changes Made**:
+- **Updated color key mappings**: Changed from number keys (0-9) to letter keys based on color names:
+  - `n`/`N` = None (no color)
+  - `b`/`B` = Black
+  - `r`/`R` = Red  
+  - `g`/`G` = Green
+  - `u`/`U` = Blue (using 'u' since 'b' is taken by Black)
+  - `y`/`Y` = Yellow
+  - `m`/`M` = Magenta
+  - `c`/`C` = Cyan
+  - `w`/`W` = White
+  - `x`/`X` = Gray (as requested, using 'x' instead of 'g')
+
+- **Updated key handling**: Modified `handle_colouring_color_key()` function to recognize new letter-based key mappings
+- **Updated event matching**: Changed key matching pattern from numbers/symbols to letters (both lowercase and uppercase)
+- **Updated display**: Color picker now shows letter keys (e.g., "n:None", "b:Black") instead of numbers
+- **Updated documentation**: README now reflects new letter-based key bindings
+
+**Technical Details**:
+- **Foreground colors**: Lowercase letters (`n`, `b`, `r`, `g`, `u`, `y`, `m`, `c`, `w`, `x`)
+- **Background colors**: Uppercase letters (`N`, `B`, `R`, `G`, `U`, `Y`, `M`, `C`, `W`, `X`)
+- **Special handling**: Blue uses 'u' to avoid conflict with Black's 'b', Gray uses 'x' as requested
+- **Maintained functionality**: All existing color selection behavior preserved with new key mappings
+
+**Files Modified**:
+- `src/tui.rs` - Updated color data array, key handling function, and event matching patterns
+- `README.md` - Updated color selection key bindings documentation
+
+**Testing Recommendation**: Test all new letter-based color keys to verify they correctly set foreground (lowercase) and background (uppercase) colors. Verify that 'u' selects Blue, 'x' selects Gray, and all other letters match their respective color names.
+
+## 2025-07-23 - Removed Help Text from Color Picker Pane
+
+**Request**: Remove the selected/unselected help text from the colour pane.
+
+**Changes Made**:
+- **Removed help text**: Eliminated the bottom help line "● = selected, ○ = unselected (left=fg, right=bg)" from the color picker
+- **Cleaner interface**: Color picker now shows only the color options without additional explanatory text
+- **More space efficient**: Removes the extra lines used for help text, making the interface more compact
+
+**Files Modified**:
+- `src/tui.rs` - Removed the conditional help text addition in the `draw_colour_picker` function
+
+**Testing Recommendation**: Verify that the color picker displays cleanly without the help text and that the visual indicators (● ○) are still intuitive without the explanation.
+
+## 2025-07-23 - Added Scrollable Rules List with Scrollbar Indicator
+
+**Request**: Make the top rules list scrollable with a scrollbar indication, like the content pane.
+
+**Changes Made**:
+- **Added scrollbar state management**: Added `rules_scroll_state: ScrollbarState` and `rules_list_state: ListState` to `ColouringEditState`
+- **Converted to List widget**: Changed from `Paragraph` to `List` widget with proper selection highlighting and scrolling support
+- **Added scrollbar indicator**: Implemented vertical scrollbar on the right side of the rules list, matching the content pane style
+- **Updated navigation functions**: All rule navigation (up/down, add, delete, move) now properly updates both selection and scrollbar position
+- **Proper state synchronization**: List selection and scrollbar position stay in sync during all operations
+
+**Technical Implementation**:
+
+### New State Management:
+- **ScrollbarState**: Tracks scrollbar position and content length for proper scrollbar sizing
+- **ListState**: Manages list selection and handles scrolling behavior
+- **Synchronized updates**: All rule operations update both states to maintain consistency
+
+### Widget Changes:
+- **List widget**: Replaced `Paragraph` with `List` for native scrolling support
+- **ListItem creation**: Rules now rendered as `ListItem` objects with proper formatting
+- **Highlight styling**: Selected rule shows with bold text and "> " highlight symbol
+- **Scrollbar rendering**: Added `Scrollbar` widget with vertical right orientation matching content pane
+
+### Navigation Updates:
+- **Up/Down keys**: Update both `selected_rule_index` and scrollbar position
+- **Rule management**: Add, delete, and move operations maintain scrollbar sync  
+- **Selection bounds**: Proper handling of empty lists and boundary conditions
+
+**Files Modified**:
+- `src/tui.rs` - Added scrollbar/list state fields, updated `draw_colouring_rules_list` to use List widget with scrollbar, updated all navigation functions to sync scrollbar position
+
+**Testing Recommendation**: Test the rules list with many rules to verify scrolling works correctly. Navigate with j/k keys, add/delete rules, and move rules up/down to ensure the scrollbar indicator properly reflects the current position and list length. Verify that the scrollbar appears/disappears appropriately based on content length vs. visible area.
+
+## 2025-07-23 - Fixed Rule Summary Update on Pattern Property Changes
+
+**Request**: When toggling enabled on a filter rule pattern, update the rule summary immediately.
+
+**Problem Analysis**: 
+- When using Ctrl+T to toggle the enabled state of a pattern in the colouring dialog, the rule summary in the rules list didn't update immediately
+- The same issue existed for filter type changes (Ctrl+S, Ctrl+C, Ctrl+R) 
+- Users had to navigate away and back to see the updated rule summary
+- Text input changes were already working correctly
+
+**Solution**:
+- **Added immediate updates**: Added `self.update_selected_rule_from_editor()` calls to all pattern property change handlers
+- **Enabled toggle**: Ctrl+T now immediately updates the rule summary with ✓/✗ indicator
+- **Filter type changes**: Ctrl+S, Ctrl+C, Ctrl+R now immediately update the rule summary
+- **Maintained existing behavior**: Text input changes already had proper updating (line 625)
+
+**Changes Made**:
+- **Ctrl+T (toggle enabled)**: Added `update_selected_rule_from_editor()` call after toggling enabled state
+- **Ctrl+S (case insensitive)**: Added `update_selected_rule_from_editor()` call after filter type change
+- **Ctrl+C (case sensitive)**: Added `update_selected_rule_from_editor()` call after filter type change  
+- **Ctrl+R (regex)**: Added `update_selected_rule_from_editor()` call after filter type change
+
+**Files Modified**:
+- `src/tui.rs` - Added `update_selected_rule_from_editor()` calls to pattern property change handlers (lines 598, 604, 610, 616)
+
+**Testing Recommendation**: Test all pattern editing shortcuts (Ctrl+T, Ctrl+S, Ctrl+C, Ctrl+R) in the colouring dialog to verify that the rule summary in the rules list updates immediately. Verify that the enabled state (✓/✗) and filter type are reflected in real-time without needing to navigate away and back.
+
+## 2025-07-23 - Added Rule Toggle from Rules Pane
+
+**Request**: Allow toggling a rule from the rules pane as well as from the pattern pane.
+
+**Changes Made**:
+- **Added rules pane toggle**: Users can now press `t` in the rules list to toggle the enabled/disabled state of the currently selected rule
+- **Dual toggle support**: Rules can now be toggled from both:
+  - Rules List (when focused): `t` key
+  - Pattern Editor (when focused): `Ctrl+t` key
+- **Immediate synchronization**: When toggling from rules pane, the pattern editor state is immediately updated to reflect the change
+- **Updated UI guidance**: Rules list title now includes "t=toggle" in the help text
+
+**Technical Implementation**:
+- **Focus-specific handling**: Added key handling for `ColouringFocusArea::RulesList` to process the `t` key
+- **Rule update mechanism**: Uses `ColouringSpec::update_rule()` method to modify the rule in place
+- **State synchronization**: Updates both the rule in the spec and the editor state (`filter_edit_state.enabled`) to maintain consistency
+- **No conflicts**: Uses plain `t` key for rules pane vs `Ctrl+t` for pattern editor to avoid key conflicts
+
+**Key Bindings**:
+- **Rules List (focused)**: `t` - Toggle enabled/disabled state of current rule
+- **Pattern Editor (focused)**: `Ctrl+t` - Toggle pattern enabled/disabled (existing)
+
+**Files Modified**:
+- `src/tui.rs` - Added rules list key handling for toggle functionality, updated rules list title with toggle help text
+- `README.md` - Added documentation for new `t` key binding in Rules List section
+
+**Testing Recommendation**: Test toggling rules from both the rules list (`t` key) and pattern editor (`Ctrl+t` key). Verify that the enabled state (✓/✗) updates immediately in the rules list when toggling from either location, and that the pattern editor enabled checkbox stays synchronized when toggling from the rules list.
+
+## 2025-07-23 - Added Rule Numbering to Rules Pane
+
+**Request**: Number the rules in the rules pane.
+
+**Changes Made**:
+- **Added rule numbering**: Each rule in the rules list now displays with a sequential number (1, 2, 3, etc.)
+- **Clear visual organization**: Numbers help users quickly identify and reference specific rules
+- **Consistent formatting**: Rule display format is now: `{number}. {enabled} {pattern} → fg:{color}/bg:{color}`
+
+**Technical Implementation**:
+- **Added enumerate()**: Used `enumerate()` iterator to get index along with rule data
+- **Updated text formatting**: Modified format string from `"{} {} → fg:{}/bg:{}"` to `"{}. {} {} → fg:{}/bg:{}"` 
+- **1-based numbering**: Used `index + 1` to display human-friendly numbering starting from 1
+
+**Example Display**:
+```
+1. ✓ error → fg:Red/bg:None
+2. ✗ warning → fg:Yellow/bg:None  
+3. ✓ info → fg:Blue/bg:None
+```
+
+**Files Modified**:
+- `src/tui.rs` - Added enumerate() and updated rule text formatting in `draw_colouring_rules_list` function
+
+**Testing Recommendation**: Verify that rules display with sequential numbering (1, 2, 3, etc.) in the rules list. Test with multiple rules to ensure numbering remains consistent when adding, deleting, or reordering rules.

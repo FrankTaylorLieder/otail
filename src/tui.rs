@@ -36,7 +36,7 @@ use ratatui::{
     symbols,
     text::{Line, Span, Text},
     widgets::{
-        block::BlockExt, Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Scrollbar,
+        block::BlockExt, Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Scrollbar,
         ScrollbarOrientation, ScrollbarState, StatefulWidget, Table, TableState, Widget,
     },
     DefaultTerminal, Frame, Terminal,
@@ -206,6 +206,8 @@ struct ColouringEditState {
     selected_fg_color: Option<Colour>,
     selected_bg_color: Option<Colour>,
     pending_deletion: Option<usize>,
+    rules_scroll_state: ScrollbarState,
+    rules_list_state: ListState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -586,6 +588,24 @@ impl Tui {
                             self.apply_colouring_changes();
                             self.colouring_edit = None;
                         }
+                        // Handle keys when focus is on rules list
+                        _ if colouring_edit.focus_area == ColouringFocusArea::RulesList => {
+                            match (key.code, key.modifiers) {
+                                (KeyCode::Char('t'), KeyModifiers::NONE) => {
+                                    // Toggle enabled state of current rule
+                                    if let Some(colouring_edit) = &mut self.colouring_edit {
+                                        if let Some(rule) = colouring_edit.spec.rules().get(colouring_edit.selected_rule_index) {
+                                            let mut updated_rule = rule.clone();
+                                            updated_rule.enabled = !updated_rule.enabled;
+                                            colouring_edit.spec.update_rule(colouring_edit.selected_rule_index, updated_rule);
+                                            // Update the editor state to reflect the change
+                                            colouring_edit.filter_edit_state.enabled = !colouring_edit.filter_edit_state.enabled;
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                         // Handle pattern editing keys when focus is on pattern editor
                         _ if colouring_edit.focus_area == ColouringFocusArea::PatternEditor => {
                             match (key.code, key.modifiers) {
@@ -593,21 +613,25 @@ impl Tui {
                                     let colouring_edit = self.colouring_edit.as_mut().unwrap();
                                     colouring_edit.filter_edit_state.enabled =
                                         !colouring_edit.filter_edit_state.enabled;
+                                    self.update_selected_rule_from_editor();
                                 }
                                 (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
                                     let colouring_edit = self.colouring_edit.as_mut().unwrap();
                                     colouring_edit.filter_edit_state.filter_type =
                                         FilterType::SimpleCaseInsensitive;
+                                    self.update_selected_rule_from_editor();
                                 }
                                 (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                                     let colouring_edit = self.colouring_edit.as_mut().unwrap();
                                     colouring_edit.filter_edit_state.filter_type =
                                         FilterType::SimpleCaseSensitive;
+                                    self.update_selected_rule_from_editor();
                                 }
                                 (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
                                     let colouring_edit = self.colouring_edit.as_mut().unwrap();
                                     colouring_edit.filter_edit_state.filter_type =
                                         FilterType::Regex;
+                                    self.update_selected_rule_from_editor();
                                 }
                                 _ => {
                                     let colouring_edit = self.colouring_edit.as_mut().unwrap();
@@ -620,19 +644,17 @@ impl Tui {
                                 }
                             }
                         }
-                        // Handle color selection keys (works regardless of focus area)
-                        (KeyCode::Char('1'..='9' | '0'), _)
-                        | (
-                            KeyCode::Char(
-                                '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')',
-                            ),
-                            _,
-                        ) => {
-                            self.handle_colouring_color_key(&key.code, &key.modifiers);
-                        }
-                        // Handle other keys when focus is on color picker
+                        // Handle keys when focus is on color picker
                         _ if colouring_edit.focus_area == ColouringFocusArea::ColourPicker => {
-                            // Any other keys in color picker area are ignored
+                            match key.code {
+                                // Handle color selection keys (only when colour picker is focused)
+                                KeyCode::Char('n' | 'b' | 'r' | 'g' | 'u' | 'y' | 'm' | 'c' | 'w' | 'x') 
+                                | KeyCode::Char('N' | 'B' | 'R' | 'G' | 'U' | 'Y' | 'M' | 'C' | 'W' | 'X') => {
+                                    self.handle_colouring_color_key(&key.code, &key.modifiers);
+                                }
+                                // Any other keys in color picker area are ignored
+                                _ => {}
+                            }
                         }
                         _ => {
                             // For rules list, other keys are ignored
@@ -903,6 +925,8 @@ impl Tui {
             selected_fg_color: first_rule.map(|r| r.fg_colour.clone()).flatten(),
             selected_bg_color: first_rule.map(|r| r.bg_colour.clone()).flatten(),
             pending_deletion: None,
+            rules_scroll_state: ScrollbarState::new(0),
+            rules_list_state: ListState::default().with_selected(Some(0)),
         })
     }
 
@@ -932,6 +956,7 @@ impl Tui {
                 ColouringFocusArea::RulesList => {
                     if colouring_edit.selected_rule_index > 0 {
                         colouring_edit.selected_rule_index -= 1;
+                        colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
                         self.load_selected_rule_into_editor();
                     }
                 }
@@ -952,6 +977,7 @@ impl Tui {
                     let max_index = colouring_edit.spec.rules().len().saturating_sub(1);
                     if colouring_edit.selected_rule_index < max_index {
                         colouring_edit.selected_rule_index += 1;
+                        colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
                         self.load_selected_rule_into_editor();
                     }
                 }
@@ -968,28 +994,28 @@ impl Tui {
     fn handle_colouring_color_key(&mut self, key_code: &KeyCode, _modifiers: &KeyModifiers) {
         if let Some(colouring_edit) = &mut self.colouring_edit {
             match key_code {
-                // Background color selection (shifted symbols)
-                KeyCode::Char('!') => colouring_edit.selected_bg_color = None, // Shift+1
-                KeyCode::Char('@') => colouring_edit.selected_bg_color = Some(Colour::Black), // Shift+2
-                KeyCode::Char('#') => colouring_edit.selected_bg_color = Some(Colour::Red), // Shift+3
-                KeyCode::Char('$') => colouring_edit.selected_bg_color = Some(Colour::Green), // Shift+4
-                KeyCode::Char('%') => colouring_edit.selected_bg_color = Some(Colour::Blue), // Shift+5
-                KeyCode::Char('^') => colouring_edit.selected_bg_color = Some(Colour::Yellow), // Shift+6
-                KeyCode::Char('&') => colouring_edit.selected_bg_color = Some(Colour::Magenta), // Shift+7
-                KeyCode::Char('*') => colouring_edit.selected_bg_color = Some(Colour::Cyan), // Shift+8
-                KeyCode::Char('(') => colouring_edit.selected_bg_color = Some(Colour::White), // Shift+9
-                KeyCode::Char(')') => colouring_edit.selected_bg_color = Some(Colour::Gray), // Shift+0
-                // Foreground color selection (number keys)
-                KeyCode::Char('1') => colouring_edit.selected_fg_color = None,
-                KeyCode::Char('2') => colouring_edit.selected_fg_color = Some(Colour::Black),
-                KeyCode::Char('3') => colouring_edit.selected_fg_color = Some(Colour::Red),
-                KeyCode::Char('4') => colouring_edit.selected_fg_color = Some(Colour::Green),
-                KeyCode::Char('5') => colouring_edit.selected_fg_color = Some(Colour::Blue),
-                KeyCode::Char('6') => colouring_edit.selected_fg_color = Some(Colour::Yellow),
-                KeyCode::Char('7') => colouring_edit.selected_fg_color = Some(Colour::Magenta),
-                KeyCode::Char('8') => colouring_edit.selected_fg_color = Some(Colour::Cyan),
-                KeyCode::Char('9') => colouring_edit.selected_fg_color = Some(Colour::White),
-                KeyCode::Char('0') => colouring_edit.selected_fg_color = Some(Colour::Gray),
+                // Background color selection (shifted letters)
+                KeyCode::Char('N') => colouring_edit.selected_bg_color = None, // Shift+n
+                KeyCode::Char('B') => colouring_edit.selected_bg_color = Some(Colour::Black), // Shift+b
+                KeyCode::Char('R') => colouring_edit.selected_bg_color = Some(Colour::Red), // Shift+r
+                KeyCode::Char('G') => colouring_edit.selected_bg_color = Some(Colour::Green), // Shift+g
+                KeyCode::Char('U') => colouring_edit.selected_bg_color = Some(Colour::Blue), // Shift+u
+                KeyCode::Char('Y') => colouring_edit.selected_bg_color = Some(Colour::Yellow), // Shift+y
+                KeyCode::Char('M') => colouring_edit.selected_bg_color = Some(Colour::Magenta), // Shift+m
+                KeyCode::Char('C') => colouring_edit.selected_bg_color = Some(Colour::Cyan), // Shift+c
+                KeyCode::Char('W') => colouring_edit.selected_bg_color = Some(Colour::White), // Shift+w
+                KeyCode::Char('X') => colouring_edit.selected_bg_color = Some(Colour::Gray), // Shift+x
+                // Foreground color selection (lowercase letters)
+                KeyCode::Char('n') => colouring_edit.selected_fg_color = None,
+                KeyCode::Char('b') => colouring_edit.selected_fg_color = Some(Colour::Black),
+                KeyCode::Char('r') => colouring_edit.selected_fg_color = Some(Colour::Red),
+                KeyCode::Char('g') => colouring_edit.selected_fg_color = Some(Colour::Green),
+                KeyCode::Char('u') => colouring_edit.selected_fg_color = Some(Colour::Blue),
+                KeyCode::Char('y') => colouring_edit.selected_fg_color = Some(Colour::Yellow),
+                KeyCode::Char('m') => colouring_edit.selected_fg_color = Some(Colour::Magenta),
+                KeyCode::Char('c') => colouring_edit.selected_fg_color = Some(Colour::Cyan),
+                KeyCode::Char('w') => colouring_edit.selected_fg_color = Some(Colour::White),
+                KeyCode::Char('x') => colouring_edit.selected_fg_color = Some(Colour::Gray),
                 _ => {}
             }
 
@@ -1059,6 +1085,7 @@ impl Tui {
                 .spec
                 .add_rule(new_rule.clone(), Some(insert_index));
             colouring_edit.selected_rule_index = insert_index;
+            colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
 
             // Load the new rule into the editor
             colouring_edit.filter_edit_state = FilterEditState {
@@ -1088,6 +1115,7 @@ impl Tui {
                     if colouring_edit.selected_rule_index > max_index {
                         colouring_edit.selected_rule_index = max_index;
                     }
+                    colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
 
                     // Load the current rule (or clear if no rules left)
                     if colouring_edit.spec.rules().is_empty() {
@@ -1121,6 +1149,7 @@ impl Tui {
                 .move_rule_up(colouring_edit.selected_rule_index)
             {
                 colouring_edit.selected_rule_index -= 1;
+                colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
             }
         }
     }
@@ -1132,6 +1161,7 @@ impl Tui {
                 .move_rule_down(colouring_edit.selected_rule_index)
             {
                 colouring_edit.selected_rule_index += 1;
+                colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
             }
         }
     }
@@ -1251,7 +1281,7 @@ impl Tui {
         }
 
         // Render the colours dlg if needed.
-        if let Some(colouring_edit) = &self.colouring_edit {
+        if let Some(colouring_edit) = &mut self.colouring_edit {
             Tui::draw_colouring_dlg(colouring_edit, area, frame);
         }
     }
@@ -1268,7 +1298,7 @@ impl Tui {
         frame.render_widget(surrounding_block, area);
     }
 
-    fn draw_colouring_dlg(colouring_edit: &ColouringEditState, area: Rect, frame: &mut Frame) {
+    fn draw_colouring_dlg(colouring_edit: &mut ColouringEditState, area: Rect, frame: &mut Frame) {
         let area = Tui::popup_area(area, 80, 70);
         frame.render_widget(Clear, area);
 
@@ -1288,7 +1318,7 @@ impl Tui {
     }
 
     fn draw_colouring_rules_list(
-        colouring_edit: &ColouringEditState,
+        colouring_edit: &mut ColouringEditState,
         area: Rect,
         frame: &mut Frame,
     ) {
@@ -1302,7 +1332,7 @@ impl Tui {
         let rules_title = if colouring_edit.pending_deletion.is_some() {
             "⚠️ Press 'y' to DELETE rule, any other key to CANCEL"
         } else {
-            "Rules (Tab/Shift+Tab=focus, j/k/↑↓=nav, +/-=add/del, Shift+j/k/↑↓=move, Enter=apply, Esc=close)"
+            "Rules (Tab/Shift+Tab=focus, j/k/↑↓=nav, t=toggle, +/-=add/del, Shift+j/k/↑↓=move, Enter=apply, Esc=close)"
         };
 
         let rules_block = Block::new()
@@ -1313,10 +1343,10 @@ impl Tui {
 
         // Create list items for each rule
         let rules = colouring_edit.spec.rules();
-        let items: Vec<Line> = rules
+        let items: Vec<ListItem> = rules
             .iter()
             .enumerate()
-            .map(|(i, rule)| {
+            .map(|(index, rule)| {
                 let enabled_str = if rule.enabled { "✓" } else { "✗" };
                 let fg_str = rule
                     .fg_colour
@@ -1330,32 +1360,51 @@ impl Tui {
                     .unwrap_or_else(|| "None".to_string());
 
                 let text = format!(
-                    "{} {} → fg:{}/bg:{}",
+                    "{}. {} {} → fg:{}/bg:{}",
+                    index + 1,
                     enabled_str,
                     rule.filter_spec.render(),
                     fg_str,
                     bg_str
                 );
 
-                if i == colouring_edit.selected_rule_index {
-                    Line::from(format!("> {}", text))
-                        .style(Style::default().add_modifier(Modifier::BOLD))
-                } else {
-                    Line::from(format!("  {}", text))
-                }
+                ListItem::new(text)
             })
             .collect();
 
         // If no rules, show placeholder
         let items = if items.is_empty() {
-            vec![Line::from("  No rules defined")]
+            vec![ListItem::new("No rules defined")]
         } else {
             items
         };
 
-        let list = Paragraph::new(items);
-        frame.render_widget(rules_block, area);
-        frame.render_widget(list, inner_area);
+        // Update list state selection
+        colouring_edit.rules_list_state.select(Some(colouring_edit.selected_rule_index));
+        
+        // Update scrollbar state
+        let total_items = items.len().max(1);
+        colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.content_length(total_items);
+
+        let list = List::new(items)
+            .block(rules_block)
+            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+            .highlight_symbol("> ");
+
+        frame.render_stateful_widget(list, area, &mut colouring_edit.rules_list_state);
+        
+        // Add scrollbar
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None),
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut colouring_edit.rules_scroll_state,
+        );
     }
 
     fn draw_colouring_edit_section(
@@ -1364,7 +1413,7 @@ impl Tui {
         frame: &mut Frame,
     ) {
         // Split the edit area vertically: pattern editor on top, color picker on bottom
-        let edit_layout = Layout::vertical([Constraint::Fill(1), Constraint::Min(6)]);
+        let edit_layout = Layout::vertical([Constraint::Fill(1), Constraint::Min(4)]);
         let [pattern_area, color_area] = edit_layout.areas(area);
 
         // Draw pattern editor (reusing existing draw_filter_edit)
@@ -1399,107 +1448,69 @@ impl Tui {
         let color_block = Block::new()
             .borders(Borders::ALL)
             .border_set(border_style)
-            .title("Colours");
+            .title("Colours (letter=fg, Shift+letter=bg)");
         let inner_area = color_block.inner(area);
 
-        // Split into two columns: foreground and background
-        let color_layout = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]);
-        let [fg_area, bg_area] = color_layout.areas(inner_area);
-
-        // Draw foreground color options
-        let fg_colors = vec![
-            Line::from(vec![Tui::draw_radiobutton(
-                "[1] (None)",
-                colouring_edit.selected_fg_color.is_none(),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[2] Black",
-                colouring_edit.selected_fg_color == Some(Colour::Black),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[3] Red",
-                colouring_edit.selected_fg_color == Some(Colour::Red),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[4] Green",
-                colouring_edit.selected_fg_color == Some(Colour::Green),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[5] Blue",
-                colouring_edit.selected_fg_color == Some(Colour::Blue),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[6] Yellow",
-                colouring_edit.selected_fg_color == Some(Colour::Yellow),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[7] Magenta",
-                colouring_edit.selected_fg_color == Some(Colour::Magenta),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[8] Cyan",
-                colouring_edit.selected_fg_color == Some(Colour::Cyan),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[9] White",
-                colouring_edit.selected_fg_color == Some(Colour::White),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[0] Gray",
-                colouring_edit.selected_fg_color == Some(Colour::Gray),
-            )]),
+        // Color data: (key, shift_key, name, color_option)
+        let colors = [
+            ("n", "N", "None", None),
+            ("b", "B", "Black", Some(Colour::Black)),
+            ("r", "R", "Red", Some(Colour::Red)),
+            ("g", "G", "Green", Some(Colour::Green)),
+            ("u", "U", "Blue", Some(Colour::Blue)),
+            ("y", "Y", "Yellow", Some(Colour::Yellow)),
+            ("m", "M", "Magenta", Some(Colour::Magenta)),
+            ("c", "C", "Cyan", Some(Colour::Cyan)),
+            ("w", "W", "White", Some(Colour::White)),
+            ("x", "X", "Gray", Some(Colour::Gray)),
         ];
 
-        // Draw background color options
-        let bg_colors = vec![
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+1] (None)",
-                colouring_edit.selected_bg_color.is_none(),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+2] Black",
-                colouring_edit.selected_bg_color == Some(Colour::Black),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+3] Red",
-                colouring_edit.selected_bg_color == Some(Colour::Red),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+4] Green",
-                colouring_edit.selected_bg_color == Some(Colour::Green),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+5] Blue",
-                colouring_edit.selected_bg_color == Some(Colour::Blue),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+6] Yellow",
-                colouring_edit.selected_bg_color == Some(Colour::Yellow),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+7] Magenta",
-                colouring_edit.selected_bg_color == Some(Colour::Magenta),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+8] Cyan",
-                colouring_edit.selected_bg_color == Some(Colour::Cyan),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+9] White",
-                colouring_edit.selected_bg_color == Some(Colour::White),
-            )]),
-            Line::from(vec![Tui::draw_radiobutton(
-                "[Shift+0] Gray",
-                colouring_edit.selected_bg_color == Some(Colour::Gray),
-            )]),
-        ];
+        // Calculate how many columns we can fit based on available width
+        // Each color entry needs about 16 characters: "● ○ 1:Magenta"
+        let min_entry_width = 16;
+        let available_width = inner_area.width as usize;
+        let num_cols = std::cmp::max(1, std::cmp::min(5, available_width / min_entry_width));
+        let num_rows = (colors.len() + num_cols - 1) / num_cols;
 
-        let fg_paragraph = Paragraph::new(fg_colors).block(Block::bordered().title("Foreground"));
-        let bg_paragraph = Paragraph::new(bg_colors).block(Block::bordered().title("Background"));
+        // Calculate column width for proper alignment
+        let col_width = available_width / num_cols;
 
+        // Build color lines with multiple columns
+        let mut color_lines = Vec::new();
+        for row in 0..num_rows {
+            let mut spans = Vec::new();
+            for col in 0..num_cols {
+                let index = row * num_cols + col;
+                if index < colors.len() {
+                    let (key, _shift_key, name, color_opt) = &colors[index];
+                    
+                    // Check if this color is selected for fg or bg
+                    let fg_selected = colouring_edit.selected_fg_color == *color_opt;
+                    let bg_selected = colouring_edit.selected_bg_color == *color_opt;
+                    
+                    let fg_indicator = if fg_selected { "●" } else { "○" };
+                    let bg_indicator = if bg_selected { "●" } else { "○" };
+                    
+                    // Format: "● ○ 1:None" (fg_indicator bg_indicator key:name)
+                    let entry = format!("{} {} {}:{}", fg_indicator, bg_indicator, key, name);
+                    
+                    // Pad entry to column width for alignment (except last column)
+                    if col < num_cols - 1 {
+                        let padded_entry = format!("{:<width$}", entry, width = col_width);
+                        spans.push(Span::from(padded_entry));
+                    } else {
+                        spans.push(Span::from(entry));
+                    }
+                }
+            }
+            color_lines.push(Line::from(spans));
+        }
+
+
+        let color_paragraph = Paragraph::new(color_lines);
+        
         frame.render_widget(color_block, area);
-        frame.render_widget(fg_paragraph, fg_area);
-        frame.render_widget(bg_paragraph, bg_area);
+        frame.render_widget(color_paragraph, inner_area);
     }
 
     fn draw_filter_edit(filter_edit: &FilterEditState, inner_area: Rect, frame: &mut Frame) {

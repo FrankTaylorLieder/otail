@@ -137,6 +137,8 @@ Note: the key bindings may change before this reaches its first stable release.
   - Rules List (when focused)
     - `j`, `k`, `DOWN`, `UP`
       - Navigate up/down in the rules list.
+    - `t`
+      - Toggle enabled/disabled state of current rule.
     - `Insert`, `+`
       - Add new rule with default values.
     - `Delete`, `-`
@@ -153,8 +155,8 @@ Note: the key bindings may change before this reaches its first stable release.
     - `Ctrl+r`
       - Set pattern type to Regex.
   - Colour Selection (when focused)
-    - (`Shift+`)number:
-      - Select foreground or background colour
+    - Letters: `n` (None), `b` (Black), `r` (Red), `g` (Green), `u` (Blue), `y` (Yellow), `m` (Magenta), `c` (Cyan), `w` (White), `x` (Gray) for foreground colours.
+    - `Shift+letters`: `N`, `B`, `R`, `G`, `U`, `Y`, `M`, `C`, `W`, `X` for background colours.
 
 ## Contributions
 
