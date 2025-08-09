@@ -4,16 +4,16 @@ version = "0.0.1"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.89"
-clap = { version = "4.5.20", features = ["derive"] }
+anyhow = "1.0.98"
+clap = { version = "4.5.43", features = ["derive"] }
 crossterm = { version = "0.28.1", features = ["event-stream"] }
-env_logger = "0.11.5"
-flexi_logger = "0.29.6"
+env_logger = "0.11.8"
+flexi_logger = "0.29.8"
 fmtsize = "0.1.2"
 futures = "0.3.31"
 futures-timer = "3.0.3"
 lazy_static = "1.5.0"
-log = "0.4.22"
+log = "0.4.27"
 notify = { version = "6.1.1", default-features = false, features = ["macos_fsevent"] }
 num-format = "0.4.4"
 ratatui = "0.29"
@@ -21,8 +21,8 @@ regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
 strum = { version = "0.27", features = ["derive"] }
-tokio = { version = "1.43.1", features = ["full"] }
-tokio-util = "0.7.12"
+tokio = { version = "1.47.1", features = ["full"] }
+tokio-util = "0.7.16"
 tui-input = "0.11.1"
 
 [dev-dependencies]

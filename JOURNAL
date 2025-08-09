@@ -373,3 +373,10 @@ Commit: fb47dcb
 
 - Load/save colouring rules from preferences file.
   - Allow readonly config.
+
+Commit: b523db8
+
+- Upgrade all the deps
+  - `cargo install cargo-edit`
+  - `cargo upgrade`
+
