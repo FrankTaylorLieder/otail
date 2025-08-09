@@ -1,4 +1,6 @@
 /target
+otail.yaml
+.otail.yaml
 otail.log
 otail-panic.log
 *.test-log

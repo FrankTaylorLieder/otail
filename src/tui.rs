@@ -1,6 +1,7 @@
 #![allow(unused_imports, unused_variables)]
 use crate::{
     colour_spec::{Colour, ColouringRule, ColouringSpec, Colours},
+    config::{self, load_config, save_config, LocatedConfig},
     filter_spec::{FilterSpec, FilterType},
 };
 use anyhow::{bail, Result};
@@ -36,8 +37,9 @@ use ratatui::{
     symbols,
     text::{Line, Span, Text},
     widgets::{
-        block::BlockExt, Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Scrollbar,
-        ScrollbarOrientation, ScrollbarState, StatefulWidget, Table, TableState, Widget,
+        block::BlockExt, Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState,
+        Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Table,
+        TableState, Widget,
     },
     DefaultTerminal, Frame, Terminal,
 };
@@ -220,6 +222,8 @@ enum ColouringFocusArea {
 pub struct Tui {
     path: String,
 
+    config: Option<LocatedConfig>,
+
     content_ifresp_recv: FileRespReceiver<IFResp<String>>,
     filter_ffresp_recv: FFRespReceiver,
 
@@ -278,16 +282,30 @@ impl Tui {
             filter_ifresp_sender,
         );
 
-        let colouring = ColouringSpec::new().set_rules(vec![ColouringRule {
-            enabled: true,
-            filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "error")
-                .expect("Failed to build sample filter spec"),
-            fg_colour: Some(Colour::Red),
-            bg_colour: None,
-        }]);
+        let config = match load_config() {
+            Ok(config) => config,
+            Err(e) => {
+                warn!("Failed to find/load config: {}", e);
+                None
+            }
+        };
+
+        // Load the config which contains colouring spec.
+        let colouring = match config {
+            Some(ref config) => config.config.colouring.clone(),
+            None => ColouringSpec::new().set_rules(vec![ColouringRule {
+                enabled: true,
+                filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "error")
+                    .expect("Failed to build sample filter spec"),
+                fg_colour: Some(Colour::Red),
+                bg_colour: None,
+            }]),
+        };
 
         let s = Self {
             path,
+
+            config,
 
             content_ifresp_recv,
             filter_ffresp_recv: filter_ifresp_recv,
@@ -594,12 +612,20 @@ impl Tui {
                                 (KeyCode::Char('t'), KeyModifiers::NONE) => {
                                     // Toggle enabled state of current rule
                                     if let Some(colouring_edit) = &mut self.colouring_edit {
-                                        if let Some(rule) = colouring_edit.spec.rules().get(colouring_edit.selected_rule_index) {
+                                        if let Some(rule) = colouring_edit
+                                            .spec
+                                            .rules()
+                                            .get(colouring_edit.selected_rule_index)
+                                        {
                                             let mut updated_rule = rule.clone();
                                             updated_rule.enabled = !updated_rule.enabled;
-                                            colouring_edit.spec.update_rule(colouring_edit.selected_rule_index, updated_rule);
+                                            colouring_edit.spec.update_rule(
+                                                colouring_edit.selected_rule_index,
+                                                updated_rule,
+                                            );
                                             // Update the editor state to reflect the change
-                                            colouring_edit.filter_edit_state.enabled = !colouring_edit.filter_edit_state.enabled;
+                                            colouring_edit.filter_edit_state.enabled =
+                                                !colouring_edit.filter_edit_state.enabled;
                                         }
                                     }
                                 }
@@ -648,8 +674,12 @@ impl Tui {
                         _ if colouring_edit.focus_area == ColouringFocusArea::ColourPicker => {
                             match key.code {
                                 // Handle color selection keys (only when colour picker is focused)
-                                KeyCode::Char('n' | 'b' | 'r' | 'g' | 'u' | 'y' | 'm' | 'c' | 'w' | 'x') 
-                                | KeyCode::Char('N' | 'B' | 'R' | 'G' | 'U' | 'Y' | 'M' | 'C' | 'W' | 'X') => {
+                                KeyCode::Char(
+                                    'n' | 'b' | 'r' | 'g' | 'u' | 'y' | 'm' | 'c' | 'w' | 'x',
+                                )
+                                | KeyCode::Char(
+                                    'N' | 'B' | 'R' | 'G' | 'U' | 'Y' | 'M' | 'C' | 'W' | 'X',
+                                ) => {
                                     self.handle_colouring_color_key(&key.code, &key.modifiers);
                                 }
                                 // Any other keys in color picker area are ignored
@@ -956,7 +986,9 @@ impl Tui {
                 ColouringFocusArea::RulesList => {
                     if colouring_edit.selected_rule_index > 0 {
                         colouring_edit.selected_rule_index -= 1;
-                        colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
+                        colouring_edit.rules_scroll_state = colouring_edit
+                            .rules_scroll_state
+                            .position(colouring_edit.selected_rule_index);
                         self.load_selected_rule_into_editor();
                     }
                 }
@@ -977,7 +1009,9 @@ impl Tui {
                     let max_index = colouring_edit.spec.rules().len().saturating_sub(1);
                     if colouring_edit.selected_rule_index < max_index {
                         colouring_edit.selected_rule_index += 1;
-                        colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
+                        colouring_edit.rules_scroll_state = colouring_edit
+                            .rules_scroll_state
+                            .position(colouring_edit.selected_rule_index);
                         self.load_selected_rule_into_editor();
                     }
                 }
@@ -1074,6 +1108,14 @@ impl Tui {
             self.content_state.colouring = colouring_edit.spec.clone();
             self.filter_state.colouring = colouring_edit.spec.clone();
         }
+
+        if let Some(ref mut config) = self.config {
+            config.config.colouring = self.colouring.clone();
+
+            if let Err(e) = save_config(&config) {
+                warn!("Failed to save config: {}", e);
+            }
+        }
     }
 
     fn handle_colouring_add_rule(&mut self) {
@@ -1085,7 +1127,9 @@ impl Tui {
                 .spec
                 .add_rule(new_rule.clone(), Some(insert_index));
             colouring_edit.selected_rule_index = insert_index;
-            colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
+            colouring_edit.rules_scroll_state = colouring_edit
+                .rules_scroll_state
+                .position(colouring_edit.selected_rule_index);
 
             // Load the new rule into the editor
             colouring_edit.filter_edit_state = FilterEditState {
@@ -1115,7 +1159,9 @@ impl Tui {
                     if colouring_edit.selected_rule_index > max_index {
                         colouring_edit.selected_rule_index = max_index;
                     }
-                    colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
+                    colouring_edit.rules_scroll_state = colouring_edit
+                        .rules_scroll_state
+                        .position(colouring_edit.selected_rule_index);
 
                     // Load the current rule (or clear if no rules left)
                     if colouring_edit.spec.rules().is_empty() {
@@ -1149,7 +1195,9 @@ impl Tui {
                 .move_rule_up(colouring_edit.selected_rule_index)
             {
                 colouring_edit.selected_rule_index -= 1;
-                colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
+                colouring_edit.rules_scroll_state = colouring_edit
+                    .rules_scroll_state
+                    .position(colouring_edit.selected_rule_index);
             }
         }
     }
@@ -1161,7 +1209,9 @@ impl Tui {
                 .move_rule_down(colouring_edit.selected_rule_index)
             {
                 colouring_edit.selected_rule_index += 1;
-                colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.position(colouring_edit.selected_rule_index);
+                colouring_edit.rules_scroll_state = colouring_edit
+                    .rules_scroll_state
+                    .position(colouring_edit.selected_rule_index);
             }
         }
     }
@@ -1380,11 +1430,15 @@ impl Tui {
         };
 
         // Update list state selection
-        colouring_edit.rules_list_state.select(Some(colouring_edit.selected_rule_index));
-        
+        colouring_edit
+            .rules_list_state
+            .select(Some(colouring_edit.selected_rule_index));
+
         // Update scrollbar state
         let total_items = items.len().max(1);
-        colouring_edit.rules_scroll_state = colouring_edit.rules_scroll_state.content_length(total_items);
+        colouring_edit.rules_scroll_state = colouring_edit
+            .rules_scroll_state
+            .content_length(total_items);
 
         let list = List::new(items)
             .block(rules_block)
@@ -1392,7 +1446,7 @@ impl Tui {
             .highlight_symbol("> ");
 
         frame.render_stateful_widget(list, area, &mut colouring_edit.rules_list_state);
-        
+
         // Add scrollbar
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -1483,17 +1537,17 @@ impl Tui {
                 let index = row * num_cols + col;
                 if index < colors.len() {
                     let (key, _shift_key, name, color_opt) = &colors[index];
-                    
+
                     // Check if this color is selected for fg or bg
                     let fg_selected = colouring_edit.selected_fg_color == *color_opt;
                     let bg_selected = colouring_edit.selected_bg_color == *color_opt;
-                    
+
                     let fg_indicator = if fg_selected { "●" } else { "○" };
                     let bg_indicator = if bg_selected { "●" } else { "○" };
-                    
+
                     // Format: "● ○ 1:None" (fg_indicator bg_indicator key:name)
                     let entry = format!("{} {} {}:{}", fg_indicator, bg_indicator, key, name);
-                    
+
                     // Pad entry to column width for alignment (except last column)
                     if col < num_cols - 1 {
                         let padded_entry = format!("{:<width$}", entry, width = col_width);
@@ -1506,9 +1560,8 @@ impl Tui {
             color_lines.push(Line::from(spans));
         }
 
-
         let color_paragraph = Paragraph::new(color_lines);
-        
+
         frame.render_widget(color_block, area);
         frame.render_widget(color_paragraph, inner_area);
     }

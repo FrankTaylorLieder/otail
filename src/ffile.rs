@@ -257,7 +257,7 @@ impl FFile {
                 };
 
                 let Some(filter_state) = &mut self.filter_state else {
-                    warn!("No current filter applied. Ignoring. {}", id);
+                    trace!("No current filter applied. Ignoring. {}", id);
                     return Ok(());
                 };
 

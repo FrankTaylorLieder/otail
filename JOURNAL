@@ -369,7 +369,7 @@ Commit: 048d3e5
 - Claude coded the UI
 - Removed the default colours
 
-Commit: c405428
+Commit: fb47dcb
 
-Next: load/save colouring rules from preferences file.
-
+- Load/save colouring rules from preferences file.
+TODO: Allow a config file to marked as RO to prevent saving.

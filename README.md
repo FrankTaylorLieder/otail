@@ -13,12 +13,12 @@ patterns.
 - Sync the top pane to the currently selected filtered pane line.
 - Both panes can tail the file.
 - Handles file truncation.
+- Load and save configuration changes, to either a project local directory, to home directory.
 
 ## Future features
 
 (No promises!)
 
-- Persist colouring rules between sessions.
 - Layered filtering. Consecutively apply filters to narrow down a search.
 
 ## Installing
@@ -157,6 +157,24 @@ Note: the key bindings may change before this reaches its first stable release.
   - Colour Selection (when focused)
     - Letters: `n` (None), `b` (Black), `r` (Red), `g` (Green), `u` (Blue), `y` (Yellow), `m` (Magenta), `c` (Cyan), `w` (White), `x` (Gray) for foreground colours.
     - `Shift+letters`: `N`, `B`, `R`, `G`, `U`, `Y`, `M`, `C`, `W`, `X` for background colours.
+
+## Config
+
+The colouring rules can be persisted between uses of otail. By default
+colouring configuration is loaded from the first of the following locations:
+
+- `./otail.yaml`
+- `./.otail.yaml`
+- `$HOME/otail.yaml`
+
+To start using saved configurations simply create an empty config file in your
+preferred location.
+
+After each change in colouring rules, the configuration is saved to the same
+location it was loaded from.
+
+If no configuration file is found a default set of colouring rules is used and
+changes will not be saved.
 
 ## Contributions
 

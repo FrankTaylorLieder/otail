@@ -1,17 +1,19 @@
 use anyhow::Result;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterType {
     SimpleCaseSensitive,
     SimpleCaseInsensitive,
     Regex,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterSpec {
     pub filter_type: FilterType,
     pub filter_pattern: String,
+    #[serde(skip)]
     regex: Option<Regex>,
 }
 

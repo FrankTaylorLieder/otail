@@ -1,8 +1,11 @@
+use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, VariantArray};
 
 use crate::filter_spec::FilterSpec;
 
-#[derive(Display, Debug, EnumString, VariantArray, PartialEq, Eq, Clone)]
+#[derive(
+    Display, Debug, EnumString, VariantArray, PartialEq, Eq, Clone, Serialize, Deserialize,
+)]
 pub enum Colour {
     Black,
     Red,
@@ -15,7 +18,7 @@ pub enum Colour {
     White,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColouringRule {
     pub enabled: bool,
     pub filter_spec: FilterSpec,
@@ -23,7 +26,7 @@ pub struct ColouringRule {
     pub bg_colour: Option<Colour>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColouringSpec {
     rules: Vec<ColouringRule>,
 }
