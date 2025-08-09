@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, VariantArray};
 
-use crate::filter_spec::FilterSpec;
+use crate::filter_spec::{FilterSpec, FilterType};
 
 #[derive(
     Display, Debug, EnumString, VariantArray, PartialEq, Eq, Clone, Serialize, Deserialize,
@@ -54,6 +54,16 @@ impl ColouringRule {
 impl ColouringSpec {
     pub fn new() -> Self {
         Self { rules: Vec::new() }
+    }
+
+    pub fn default() -> Self {
+        ColouringSpec::new().set_rules(vec![ColouringRule {
+            enabled: true,
+            filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "error")
+                .expect("Failed to build sample filter spec"),
+            fg_colour: Some(Colour::Red),
+            bg_colour: None,
+        }])
     }
 
     pub fn set_rules(mut self, rules: Vec<ColouringRule>) -> Self {

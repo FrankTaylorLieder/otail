@@ -1,7 +1,7 @@
 #![allow(unused_imports, unused_variables)]
 use crate::{
     colour_spec::{Colour, ColouringRule, ColouringSpec, Colours},
-    config::{self, load_config, save_config, LocatedConfig},
+    config::{self, load_config, maybe_save_config, LocatedConfig},
     filter_spec::{FilterSpec, FilterType},
 };
 use anyhow::{bail, Result};
@@ -222,7 +222,7 @@ enum ColouringFocusArea {
 pub struct Tui {
     path: String,
 
-    config: Option<LocatedConfig>,
+    config: LocatedConfig,
 
     content_ifresp_recv: FileRespReceiver<IFResp<String>>,
     filter_ffresp_recv: FFRespReceiver,
@@ -282,25 +282,8 @@ impl Tui {
             filter_ifresp_sender,
         );
 
-        let config = match load_config() {
-            Ok(config) => config,
-            Err(e) => {
-                warn!("Failed to find/load config: {}", e);
-                None
-            }
-        };
-
-        // Load the config which contains colouring spec.
-        let colouring = match config {
-            Some(ref config) => config.config.colouring.clone(),
-            None => ColouringSpec::new().set_rules(vec![ColouringRule {
-                enabled: true,
-                filter_spec: FilterSpec::new(FilterType::SimpleCaseInsensitive, "error")
-                    .expect("Failed to build sample filter spec"),
-                fg_colour: Some(Colour::Red),
-                bg_colour: None,
-            }]),
-        };
+        let config = load_config();
+        let colouring = config.config.colouring.clone();
 
         let s = Self {
             path,
@@ -1109,13 +1092,9 @@ impl Tui {
             self.filter_state.colouring = colouring_edit.spec.clone();
         }
 
-        if let Some(ref mut config) = self.config {
-            config.config.colouring = self.colouring.clone();
-
-            if let Err(e) = save_config(&config) {
-                warn!("Failed to save config: {}", e);
-            }
-        }
+        // Update the config and save it.
+        self.config.config.colouring = self.colouring.clone();
+        maybe_save_config(&self.config);
     }
 
     fn handle_colouring_add_rule(&mut self) {
