@@ -8,12 +8,12 @@ Note: this is an early stage project.
 
 - Shows a log file in the top content pane.
 - The lower filtered pane shows a filtered view of the file.
-- Highlight interesting content by colouring content in either pane based
-patterns.
+- Highlight interesting lines by colouring them based on their content in
+either pane.
 - Sync the top pane to the currently selected filtered pane line.
 - Both panes can tail the file.
 - Handles file truncation.
-- Load and save configuration changes, to either a project local directory, to
+- Load and save configuration changes, to either a project local directory or
 home directory.
 
 ## Future features
@@ -161,7 +161,7 @@ Note: the key bindings may change before this reaches its first stable release.
 
 ## Config
 
-The colouring rules can be persisted between uses of otail. By default
+The colouring rules can be persisted between uses of `otail`. By default
 colouring configuration is loaded from the first of the following locations:
 
 - `./otail.yaml`
