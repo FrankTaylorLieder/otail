@@ -13,7 +13,8 @@ patterns.
 - Sync the top pane to the currently selected filtered pane line.
 - Both panes can tail the file.
 - Handles file truncation.
-- Load and save configuration changes, to either a project local directory, to home directory.
+- Load and save configuration changes, to either a project local directory, to
+home directory.
 
 ## Future features
 
@@ -168,10 +169,16 @@ colouring configuration is loaded from the first of the following locations:
 - `$HOME/otail.yaml`
 
 To start using saved configurations simply create an empty config file in your
-preferred location.
+preferred location. The default rules will be loaded and any changes to the
+colouring rules will be saved to this file.
 
-After each change in colouring rules, the configuration is saved to the same
-location it was loaded from.
+A configuaration file can be made readonly by editing the file and setting
+`readonly: true`. You might like to have some default configuration in the your
+`$HOME/.config/otail.yaml` which you can copy into projects, changing
+`readonly` back to false to enable local changes to persist.
+
+After each change in colouring rules the configuration is saved to the same
+location it was loaded from, unless it was marked `readonly`.
 
 If no configuration file is found a default set of colouring rules is used and
 changes will not be saved.
