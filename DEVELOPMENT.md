@@ -481,3 +481,63 @@ Added comprehensive rule management capabilities with confirmation dialogs, defa
 - `src/tui.rs` - Added enumerate() and updated rule text formatting in `draw_colouring_rules_list` function
 
 **Testing Recommendation**: Verify that rules display with sequential numbering (1, 2, 3, etc.) in the rules list. Test with multiple rules to ensure numbering remains consistent when adding, deleting, or reordering rules.
+
+## 2025-08-17 - Added Custom Config File Command Line Option
+
+**Request**: Add a command line argument (--config and -c) to load a specific config file rather than searching for them. Ensure the README is updated with this new feature.
+
+**Implementation Overview**:
+Added ability to specify a custom config file path via command line arguments, with strict validation that exits if the specified file doesn't exist.
+
+**Changes Made**:
+
+### Command Line Argument:
+- **Added --config/-c option**: New optional argument to specify custom config file path
+- **Help text**: "Specify a custom config file path"
+- **Error handling**: Application exits with error message if specified config file doesn't exist
+
+### Config Loading Enhancement:
+- **New function**: `load_config_from(config_path: Option<String>) -> Result<LocatedConfig>`
+- **Strict validation**: Returns error if specified config file doesn't exist
+- **Fallback behavior**: Falls back to default search when no config path specified
+- **Backward compatibility**: Existing `load_config()` function maintained for other uses
+
+### Integration:
+- **Main function**: Updated to load config early and exit on error before other initialization
+- **Tui constructor**: Modified to accept `LocatedConfig` parameter instead of loading internally
+- **Error flow**: Clear error messages displayed to user before application exit
+
+### Documentation:
+- **README updates**: Added usage examples with new --config option
+- **Config section**: Enhanced with information about custom config file behavior
+- **Error behavior**: Documented that otail exits if specified config file doesn't exist
+
+**Technical Details**:
+
+### Error Handling Flow:
+1. Parse command line arguments
+2. Attempt to load config file (custom or default search)  
+3. If custom config file specified but doesn't exist: error and exit
+4. If no custom config specified: use existing search behavior
+5. Continue with normal initialization only if config loading succeeds
+
+### API Changes:
+- **main.rs**: Added config loading with error handling
+- **config.rs**: Added `load_config_from()` function with Result return type
+- **tui.rs**: Modified `Tui::new()` to accept config parameter
+- **README.md**: Added usage examples and config documentation
+
+**Files Modified**:
+- `src/main.rs` - Added config import, early config loading with error handling, pass config to Tui::new()
+- `src/config.rs` - Added load_config_from() function with custom path support and error handling
+- `src/tui.rs` - Modified Tui::new() to accept LocatedConfig parameter instead of loading internally
+- `README.md` - Added --config option to usage section and enhanced config documentation
+- `DEVELOPMENT.md` - Added this development log entry
+
+**Key Benefits**:
+- **Explicit config control**: Users can specify exact config file location
+- **Clear error handling**: No silent failures when config file doesn't exist
+- **Backward compatibility**: Existing behavior preserved when no --config specified
+- **Developer workflow**: Easier testing with different config files
+
+**Testing Recommendation**: Test --config with existing files, non-existent files (should exit with error), and without --config (should use default search). Verify help output shows new option and all existing functionality remains unchanged.

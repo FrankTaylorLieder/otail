@@ -118,7 +118,11 @@ impl Reader {
                             new_size
                         );
 
-                        trace!("Sending ReaderUpdate::Truncated - old_size: {}, new_size: {}", pos, new_size);
+                        trace!(
+                            "Sending ReaderUpdate::Truncated - old_size: {}, new_size: {}",
+                            pos,
+                            new_size
+                        );
                         sender.send(ReaderUpdate::Truncated).await?;
 
                         line.clear();

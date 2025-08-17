@@ -47,7 +47,28 @@ fn find_config() -> Option<String> {
 //
 // TODO Maybe return a message to display if there is a problem.
 pub fn load_config() -> LocatedConfig {
-    let path = find_config();
+    load_config_from(None).unwrap_or_else(|_| LocatedConfig {
+        path: None,
+        config: OtailConfig {
+            readonly: true,
+            colouring: ColouringSpec::default(),
+        },
+    })
+}
+
+pub fn load_config_from(config_path: Option<String>) -> Result<LocatedConfig> {
+    let path = if let Some(config_path) = config_path {
+        if Path::new(&config_path).exists() {
+            Some(config_path)
+        } else {
+            return Err(anyhow::anyhow!(
+                "Specified config file does not exist: {}",
+                config_path
+            ));
+        }
+    } else {
+        find_config()
+    };
 
     let otail_config = if let Some(ref path) = path {
         let config_yaml = match read_to_string(&path) {
@@ -90,7 +111,7 @@ pub fn load_config() -> LocatedConfig {
         config: otail_config,
     };
 
-    config
+    Ok(config)
 }
 
 // Save the config as best we can.

@@ -3,6 +3,7 @@ use std::{fs::File, io::stdout};
 use clap::{command, Parser};
 use flexi_logger::{detailed_format, FileSpec};
 use log::{error, info};
+use otail::config::load_config_from;
 use otail::ifile::IFile;
 use otail::panic::init_panic_handler;
 use otail::tui::Tui;
@@ -21,6 +22,13 @@ use ratatui::{
 #[command(version, about, long_about = None)]
 struct Args {
     path: String,
+
+    #[arg(
+        short = 'c',
+        long = "config",
+        help = "Specify a custom config file path"
+    )]
+    config: Option<String>,
 }
 
 #[tokio::main]
@@ -36,6 +44,16 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     info!("otail starting: {:?}", args);
+
+    // Load config first, exit if specified config file doesn't exist
+    let config = match load_config_from(args.config) {
+        Ok(config) => config,
+        Err(e) => {
+            error!("{}", e);
+            eprintln!("{}", e);
+            return Ok(());
+        }
+    };
 
     // Quickly check the file before starting... can produce a better error.
     if let Err(e) = File::open(&args.path) {
@@ -55,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
         ifile.get_view_sender(),
         ffile.get_view_sender(),
         ffile.get_ff_sender(),
+        config,
     );
 
     tokio::spawn(async move {

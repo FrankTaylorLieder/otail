@@ -37,6 +37,7 @@ or directly from git:
 Run:
 
 - `otail <file>`
+- `otail --config <config-file> <file>` or `otail -c <config-file> <file>`
 
 Note: `otail` only works against files on disk. It does not read from `STDIN`.
 
@@ -166,7 +167,10 @@ colouring configuration is loaded from the first of the following locations:
 
 - `./otail.yaml`
 - `./.otail.yaml`
-- `$HOME/otail.yaml`
+- `$HOME/.config/otail.yaml`
+
+Alternatively, you can specify a custom config file using the `--config` or `-c` 
+option. If the specified config file does not exist, `otail` will exit with an error.
 
 To start using saved configurations simply create an empty config file in your
 preferred location. The default rules will be loaded and any changes to the

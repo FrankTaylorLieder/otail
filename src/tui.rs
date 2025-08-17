@@ -267,6 +267,7 @@ impl Tui {
         ifreq_sender: FileReqSender<IFResp<String>>,
         ffreq_sender: FileReqSender<FFResp>,
         ff_sender: FFReqSender,
+        config: LocatedConfig,
     ) -> Self {
         let (content_ifresp_sender, content_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
         let (filter_ifresp_sender, filter_ifresp_recv) = mpsc::channel(CHANNEL_BUFFER);
@@ -282,7 +283,6 @@ impl Tui {
             filter_ifresp_sender,
         );
 
-        let config = load_config();
         let colouring = config.config.colouring.clone();
 
         let s = Self {
