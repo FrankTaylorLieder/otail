@@ -100,6 +100,8 @@ Note: the key bindings may change before this reaches its first stable release.
     - Move to the first/last line of the file.
   - `z`
     - Center the current line in the window.
+  - `Ctrl-r`
+    - Redraw the screen.
 
 - Pane
   - `TAB`

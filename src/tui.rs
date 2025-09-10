@@ -247,6 +247,8 @@ pub struct Tui {
     content_fill: usize,
     // Margin for line numbers and carret
     line_no_width: usize,
+    // Force a full redraw
+    redraw: bool,
 
     // Are we showing the filter edit modal?
     filter_edit: Option<FilterEditState>,
@@ -323,6 +325,7 @@ impl Tui {
             current_window: true,
             content_fill: 7,
             line_no_width: 0,
+            redraw: false,
 
             filter_edit: None,
             sync_filter_to_content: false,
@@ -353,7 +356,7 @@ impl Tui {
         let mut dirty = true;
 
         while !should_quit {
-            if can_render && dirty {
+            if can_render && dirty || self.redraw {
                 // Let the states know the current file length to ensure margin layout
                 let content_stats = self.content_state.view.get_stats();
                 self.content_state.content_num_lines = content_stats.file_lines;
@@ -369,6 +372,10 @@ impl Tui {
                     .content_length(self.filter_state.view.get_stats().view_lines)
                     .viewport_content_length(self.filter_state.view.get_viewport_height());
 
+                if self.redraw {
+                    terminal.clear()?;
+                    self.redraw = false;
+                }
                 trace!("Draw!");
                 terminal.draw(|frame| self.draw(frame))?;
                 can_render = false;
@@ -512,6 +519,9 @@ impl Tui {
 
                         (KeyCode::Char('/'), _) => self.start_edit_filter(),
                         (KeyCode::Char('C'), _) => self.start_edit_colouring(),
+
+                        (KeyCode::Char('r'), KeyModifiers::CONTROL) => self.redraw = true,
+
                         _ => {}
                     },
                     // Showing the filter edit dialog.
@@ -669,6 +679,7 @@ impl Tui {
                                 _ => {}
                             }
                         }
+
                         _ => {
                             // For rules list, other keys are ignored
                         }
