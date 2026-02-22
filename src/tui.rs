@@ -568,17 +568,29 @@ impl Tui {
                             self.cycle_colouring_focus();
                         }
                         (KeyCode::Up, KeyModifiers::SHIFT)
-                        | (KeyCode::Char('K'), KeyModifiers::SHIFT) => {
+                        | (KeyCode::Char('K'), KeyModifiers::SHIFT)
+                            if colouring_edit.focus_area
+                                != ColouringFocusArea::PatternEditor =>
+                        {
                             self.handle_colouring_move_rule_up();
                         }
                         (KeyCode::Down, KeyModifiers::SHIFT)
-                        | (KeyCode::Char('J'), KeyModifiers::SHIFT) => {
+                        | (KeyCode::Char('J'), KeyModifiers::SHIFT)
+                            if colouring_edit.focus_area
+                                != ColouringFocusArea::PatternEditor =>
+                        {
                             self.handle_colouring_move_rule_down();
                         }
-                        (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                        (KeyCode::Up, _) | (KeyCode::Char('k'), _)
+                            if colouring_edit.focus_area
+                                != ColouringFocusArea::PatternEditor =>
+                        {
                             self.handle_colouring_up_key();
                         }
-                        (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                        (KeyCode::Down, _) | (KeyCode::Char('j'), _)
+                            if colouring_edit.focus_area
+                                != ColouringFocusArea::PatternEditor =>
+                        {
                             self.handle_colouring_down_key();
                         }
                         (KeyCode::Insert, _) | (KeyCode::Char('+'), _) => {

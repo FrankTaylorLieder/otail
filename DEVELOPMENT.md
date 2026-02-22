@@ -1,5 +1,17 @@
 # Development Log
 
+## 2026-02-22 - Fix hjkl keys in colouring dialog pattern field
+
+**Request**: When the colouring dialog is open, the motion keys `j` and `k` cannot be typed into the search term (pattern) field.
+
+**Problem Analysis**:
+- In `src/tui.rs`, the colouring dialog key handler matches `j`/`Down` and `k`/`Up` unconditionally at the top of its match block, before checking which focus area is active.
+- When the PatternEditor pane has focus, these arms still fired, triggering navigation instead of passing the character to the text input widget.
+- `h` and `l` were not bound in the colouring match, so they already fell through correctly to the PatternEditor handler.
+
+**Changes**:
+- `src/tui.rs`: Added `if colouring_edit.focus_area != ColouringFocusArea::PatternEditor` guards to the `k`/Up and `j`/Down arms (and their Shift variants for rule reordering), so they are skipped when the PatternEditor has focus, allowing the characters to reach the input field via the PatternEditor wildcard arm.
+
 ## 2025-06-27 - Fix Case-Insensitive Filtering
 
 **Request**: Case insensitive filtering was not working properly despite being implemented.
