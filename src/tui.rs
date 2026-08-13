@@ -490,6 +490,8 @@ impl Tui {
                     (None, None) => match (key.code, key.modifiers) {
                         (KeyCode::Char('q'), _) => return Ok(true),
 
+                        (KeyCode::Char('l'), KeyModifiers::CONTROL) => self.redraw = true,
+
                         (KeyCode::Char('j') | KeyCode::Down, _) => self.scroll(1).await?,
                         (KeyCode::Char('k') | KeyCode::Up, _) => self.scroll(-1).await?,
                         (KeyCode::Char('d'), _) => self.scroll(20).await?,
@@ -519,8 +521,6 @@ impl Tui {
 
                         (KeyCode::Char('/'), _) => self.start_edit_filter(),
                         (KeyCode::Char('C'), _) => self.start_edit_colouring(),
-
-                        (KeyCode::Char('r'), KeyModifiers::CONTROL) => self.redraw = true,
 
                         _ => {}
                     },
